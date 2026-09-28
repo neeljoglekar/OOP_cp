@@ -3,6 +3,10 @@ public class Seller extends User {
         super(userId, name);
     }
 
+    public Seller(String userId, String name, String email) {
+        super(userId, name, email);
+    }
+
     @Override
     public String getRole() {
         return "Seller";

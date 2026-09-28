@@ -3,6 +3,10 @@ public class Buyer extends User implements Payable {
         super(userId, name);
     }
 
+    public Buyer(String userId, String name, String email) {
+        super(userId, name, email);
+    }
+
     @Override
     public String getRole() {
         return "Buyer";

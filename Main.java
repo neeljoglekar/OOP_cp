@@ -34,6 +34,12 @@ public class Main {
             System.out.printf("Highest bid: %.2f%n", auction.getHighestValidBid().getAmount());
 
             try {
+                buyerTwo.placeBid(auction, Double.NaN);
+            } catch (InvalidBidException exception) {
+                System.out.println("NaN bid handled: " + exception.getMessage());
+            }
+
+            try {
                 buyerTwo.placeBid(auction, 175.00);
             } catch (InvalidBidException exception) {
                 System.out.println("Invalid bid handled: " + exception.getMessage());
@@ -52,7 +58,12 @@ public class Main {
                 System.out.println("Closed auction handled: " + exception.getMessage());
             }
 
-            admin.monitorAuctions(system);
+            UserSession.setCurrentUser(admin);
+            try {
+                admin.monitorAuctions(system);
+            } finally {
+                UserSession.logout();
+            }
         } catch (InvalidBidException | AuctionClosedException exception) {
             System.out.println("Auction operation failed: " + exception.getMessage());
         }

@@ -43,7 +43,7 @@ public class Auction implements Biddable {
         if (closed) {
             throw new AuctionClosedException("Auction " + auctionId + " is closed.");
         }
-        if (buyer == null || amount <= 0) {
+        if (buyer == null || Double.isNaN(amount) || amount <= 0) {
             throw new InvalidBidException("A bid must have a buyer and a positive amount.");
         }
 
