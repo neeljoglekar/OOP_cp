@@ -1,3 +1,4 @@
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -22,7 +23,19 @@ public class AuctionSystem {
     }
 
     public Auction createAuction(String auctionId, Product product, Seller seller) {
-        Auction auction = new Auction(auctionId, product, seller);
+        return createAuction(auctionId, product, seller, LocalDateTime.MAX);
+    }
+
+    public Auction createAuction(String auctionId, Product product, Seller seller,
+            LocalDateTime endTime) {
+        Auction auction = new Auction(auctionId, product, seller, endTime);
+        auctions.add(auction);
+        return auction;
+    }
+
+    public Auction createAuction(String auctionId, Product product, Seller seller,
+            LocalDateTime endTime, double minimumBidIncrement) {
+        Auction auction = new Auction(auctionId, product, seller, endTime, minimumBidIncrement);
         auctions.add(auction);
         return auction;
     }

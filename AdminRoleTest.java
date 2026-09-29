@@ -6,7 +6,7 @@ import java.util.Locale;
 
 /** Database and authorization checks for Phase 5 admin and role behavior. */
 public class AdminRoleTest {
-    public static void main(String[] args) throws SQLException {
+    public static void main(String[] args) throws SQLException, UnauthorizedActionException {
         verifyUnsupportedRoleRejected();
         verifyAdminOperationAuthorization();
         System.out.println("Unsupported-role validation and in-memory admin authorization passed.");
@@ -44,7 +44,7 @@ public class AdminRoleTest {
         }
     }
 
-    private static void verifyAdminOperationAuthorization() {
+    private static void verifyAdminOperationAuthorization() throws UnauthorizedActionException {
         AuctionSystem system = new AuctionSystem();
         Admin admin = new Admin("TEST-ADMIN", "Test Admin");
         UserSession.setCurrentUser(admin);
@@ -54,12 +54,12 @@ public class AdminRoleTest {
         UserSession.logout();
     }
 
-    private static void verifyAdminOperationRejected(User user) {
+    private static void verifyAdminOperationRejected(User user) throws UnauthorizedActionException {
         UserSession.setCurrentUser(user);
         try {
             new Admin("TEST-ADMIN", "Test Admin").monitorAuctions(new AuctionSystem());
             throw new AssertionError("An unauthorized user performed an admin-only operation.");
-        } catch (SecurityException expected) {
+        } catch (UnauthorizedActionException expected) {
             // Expected: the active session is not the Admin instance making the call.
         } finally {
             UserSession.logout();

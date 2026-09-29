@@ -14,9 +14,10 @@ public class Admin extends User {
         return "Admin";
     }
 
-    public void monitorAuctions(AuctionSystem system) {
+    public void monitorAuctions(AuctionSystem system) throws UnauthorizedActionException {
         if (UserSession.getCurrentUser() != this) {
-            throw new SecurityException("Only the logged-in administrator can monitor auctions.");
+            throw new UnauthorizedActionException(
+                    "Only the logged-in administrator can monitor auctions.");
         }
 
         List<Auction> auctions = system.getAuctions();

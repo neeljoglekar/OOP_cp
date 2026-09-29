@@ -13,7 +13,7 @@ public class Buyer extends User implements Payable {
     }
 
     public Bid placeBid(Auction auction, double amount)
-            throws InvalidBidException, AuctionClosedException {
+            throws InvalidBidException, AuctionClosedException, InsufficientBidException {
         return auction.placeBid(this, amount);
     }
 

@@ -6,7 +6,7 @@ import java.util.Locale;
 
 /** Database-backed checks for Phase 6 profile management. */
 public class ProfileManagementTest {
-    public static void main(String[] args) throws SQLException {
+    public static void main(String[] args) throws SQLException, UserNotFoundException {
         UserDAO userDAO = new UserDAO();
         verifyProfileOperationsRequireLogin(userDAO);
         System.out.println("Profile operations correctly require a logged-in user.");
@@ -42,14 +42,16 @@ public class ProfileManagementTest {
                 + "user isolation, Buyer/Seller/Admin profiles, and login checks were verified.");
     }
 
-    private static void verifyProfileOperationsRequireLogin(UserDAO userDAO) throws SQLException {
+    private static void verifyProfileOperationsRequireLogin(UserDAO userDAO)
+            throws SQLException, UserNotFoundException {
         UserSession.logout();
         expectNotLoggedIn(userDAO::viewCurrentProfile);
         expectNotLoggedIn(() -> userDAO.updateCurrentProfile("No Session", "no-session@example.invalid"));
         expectNotLoggedIn(() -> userDAO.changeCurrentPassword("new-password".toCharArray()));
     }
 
-    private static void expectNotLoggedIn(SqlAction action) throws SQLException {
+    private static void expectNotLoggedIn(SqlAction action)
+            throws SQLException, UserNotFoundException {
         try {
             action.run();
             throw new AssertionError("A profile operation succeeded without a logged-in user.");
@@ -59,7 +61,8 @@ public class ProfileManagementTest {
     }
 
     private static void verifyBuyerProfileFlow(UserDAO userDAO, int userId, String oldEmail,
-            String newEmail, String otherUserEmail, char[] oldPassword) throws SQLException {
+            String newEmail, String otherUserEmail, char[] oldPassword)
+            throws SQLException, UserNotFoundException {
         User loggedIn = userDAO.login(oldEmail, oldPassword);
         if (!(loggedIn instanceof Buyer)) {
             throw new AssertionError("Buyer login failed before profile testing.");
@@ -109,7 +112,7 @@ public class ProfileManagementTest {
     }
 
     private static void verifyOtherRoleProfile(UserDAO userDAO, String email, char[] password,
-            Class<?> expectedType, String updatedName) throws SQLException {
+            Class<?> expectedType, String updatedName) throws SQLException, UserNotFoundException {
         User user = userDAO.login(email, password);
         if (user == null || !expectedType.isInstance(user)) {
             throw new AssertionError("Login failed for profile role " + expectedType.getSimpleName());
@@ -177,6 +180,6 @@ public class ProfileManagementTest {
 
     @FunctionalInterface
     private interface SqlAction {
-        Object run() throws SQLException;
+        Object run() throws SQLException, UserNotFoundException;
     }
 }

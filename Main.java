@@ -1,4 +1,6 @@
 import java.sql.SQLException;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Scanner;
 
@@ -7,6 +9,8 @@ public class Main {
 
     public static void main(String[] args) {
         AuctionSystem auctionSystem = new AuctionSystem();
+        demonstrateMinimumBidIncrement();
+        demonstrateExpiredAuction();
 
         try (Scanner scanner = new Scanner(System.in)) {
             boolean running = true;
@@ -179,7 +183,7 @@ public class Main {
             case 3:
                 try {
                     admin.monitorAuctions(system);
-                } catch (SecurityException exception) {
+                } catch (UnauthorizedActionException exception) {
                     System.out.println("Operation denied: " + exception.getMessage());
                 }
                 break;
@@ -206,7 +210,7 @@ public class Main {
             System.out.println("Name: " + user.getName());
             System.out.println("Email: " + user.getEmail());
             System.out.println("Role: " + user.getRole());
-        } catch (SQLException | IllegalStateException exception) {
+        } catch (SQLException | IllegalStateException | UserNotFoundException exception) {
             System.out.println("Could not view profile: " + exception.getMessage());
         }
     }
@@ -244,7 +248,8 @@ public class Main {
                     java.util.Arrays.fill(newPassword, '\0');
                 }
             }
-        } catch (SQLException | IllegalStateException | IllegalArgumentException exception) {
+        } catch (SQLException | IllegalStateException | IllegalArgumentException
+                | UserNotFoundException exception) {
             System.out.println("Profile update failed: " + exception.getMessage());
         }
     }
@@ -254,12 +259,19 @@ public class Main {
         String productId = scanner.nextLine();
         System.out.print("Product name: ");
         String productName = scanner.nextLine();
+        System.out.print("Product description: ");
+        String description = scanner.nextLine();
+        System.out.print("Product condition (for example, Good or Like New): ");
+        String condition = scanner.nextLine();
         System.out.print("Auction ID: ");
         String auctionId = scanner.nextLine();
+        LocalDateTime endTime = readEndTime(scanner);
+        double minimumBidIncrement = readMinimumBidIncrement(scanner);
 
-        Product product = new Product(productId, productName);
+        Product product = new Product(productId, productName, description, condition);
         seller.listProduct(system, product);
-        Auction auction = seller.createAuction(system, auctionId, product);
+        Auction auction = seller.createAuction(system, auctionId, product, endTime,
+                minimumBidIncrement);
         System.out.println("Created " + auction + ".");
     }
 
@@ -272,6 +284,9 @@ public class Main {
 
         for (Auction auction : auctions) {
             System.out.println(auction);
+            Product product = auction.getProduct();
+            System.out.println("  Description: " + product.getDescription());
+            System.out.println("  Condition: " + product.getCondition());
             if (auction.getBids().isEmpty()) {
                 System.out.println("  No bids yet.");
             } else {
@@ -298,7 +313,8 @@ public class Main {
             double amount = readBidAmount(scanner);
             Bid bid = buyer.placeBid(auction, amount);
             System.out.println("Bid placed: " + bid);
-        } catch (AuctionNotFoundException | InvalidBidException | AuctionClosedException exception) {
+        } catch (AuctionNotFoundException | InvalidBidException | AuctionClosedException
+                | InsufficientBidException exception) {
             System.out.println("Bid was not placed: " + exception.getMessage());
         }
     }
@@ -356,6 +372,97 @@ public class Main {
             } catch (NumberFormatException exception) {
                 System.out.println("Please enter a valid number.");
             }
+        }
+    }
+
+    private static LocalDateTime readEndTime(Scanner scanner) {
+        while (true) {
+            System.out.print("Auction end time (yyyy-MM-ddTHH:mm, local time): ");
+            String input = scanner.nextLine().trim();
+            try {
+                return LocalDateTime.parse(input);
+            } catch (DateTimeParseException exception) {
+                System.out.println("Enter the end time in the shown format, for example 2026-10-05T18:30.");
+            }
+        }
+    }
+
+    private static double readMinimumBidIncrement(Scanner scanner) {
+        while (true) {
+            System.out.print("Minimum bid increment: ");
+            String input = scanner.nextLine().trim();
+            try {
+                double increment = Double.parseDouble(input);
+                if (!Double.isFinite(increment) || increment <= 0) {
+                    System.out.println("The minimum bid increment must be a positive finite number.");
+                    continue;
+                }
+                return increment;
+            } catch (NumberFormatException exception) {
+                System.out.println("Enter a valid number for the minimum bid increment.");
+            }
+        }
+    }
+
+    private static void demonstrateMinimumBidIncrement() {
+        AuctionSystem demoSystem = new AuctionSystem();
+        Seller seller = new Seller("DEMO-SELLER", "Demo Seller");
+        Buyer firstBuyer = new Buyer("DEMO-BUYER-1", "Ari Buyer");
+        Buyer secondBuyer = new Buyer("DEMO-BUYER-2", "Bea Buyer");
+        Product product = new Product("DEMO-PRODUCT", "Vintage camera",
+                "A working camera with minor signs of use.", "Good");
+        seller.listProduct(demoSystem, product);
+        Auction auction = seller.createAuction(demoSystem, "DEMO-MINIMUM-BID",
+                product, LocalDateTime.now().plusHours(1), 50.00);
+
+        System.out.println("Minimum bid increment demonstration (increment: 50.00):");
+        demonstrateBid(firstBuyer, auction, 500.00, "First bid");
+        demonstrateBid(secondBuyer, auction, 520.00, "Bid below increment");
+        demonstrateBid(secondBuyer, auction, 549.00, "Bid below increment");
+        demonstrateBid(secondBuyer, auction, 550.00, "Bid at required minimum");
+        demonstrateBid(firstBuyer, auction, 600.00, "Bid above required minimum");
+        demonstrateBid(secondBuyer, auction, Double.NaN, "NaN bid");
+
+        auction.closeAuction();
+        Buyer winner = auction.getWinner();
+        System.out.println("Winner: " + (winner == null ? "No winner" : winner.getName()));
+        if (winner != null) {
+            winner.payForAuction(auction);
+        }
+        demonstrateBid(secondBuyer, auction, 650.00, "Bid after manual close");
+
+        try {
+            demoSystem.getAuction("MISSING-DEMO-AUCTION");
+        } catch (AuctionNotFoundException exception) {
+            System.out.println("Missing-auction demonstration: " + exception.getMessage());
+        }
+    }
+
+    private static void demonstrateBid(Buyer buyer, Auction auction, double amount, String label) {
+        try {
+            Bid bid = buyer.placeBid(auction, amount);
+            System.out.println(label + " accepted: " + bid);
+            System.out.println("  Automatic bid timestamp: " + bid.getTimestamp());
+        } catch (InvalidBidException | AuctionClosedException | InsufficientBidException exception) {
+            System.out.println(label + " rejected: " + exception.getMessage());
+        }
+    }
+
+    private static void demonstrateExpiredAuction() {
+        Seller seller = new Seller("DEMO-SELLER", "Demo Seller");
+        Buyer buyer = new Buyer("DEMO-BUYER", "Demo Buyer");
+        Product product = new Product("DEMO-PRODUCT", "Demo item",
+                "A small example used to demonstrate an expired auction.", "Good");
+        Auction auction = new Auction("DEMO-EXPIRED", product, seller,
+                LocalDateTime.now().minusMinutes(1));
+
+        try {
+            buyer.placeBid(auction, 10.00);
+            System.out.println("Expired-auction demonstration failed: bid was accepted.");
+        } catch (AuctionClosedException exception) {
+            System.out.println("Expired-auction demonstration: bid rejected after end time.");
+        } catch (InvalidBidException | InsufficientBidException exception) {
+            System.out.println("Expired-auction demonstration failed: " + exception.getMessage());
         }
     }
 }

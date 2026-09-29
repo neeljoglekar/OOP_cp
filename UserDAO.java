@@ -83,8 +83,29 @@ public class UserDAO {
         }
     }
 
+    /** Finds a user by stable ID without retrieving password data. */
+    public User findUserById(int userId) throws SQLException, UserNotFoundException {
+        if (userId <= 0) {
+            throw new IllegalArgumentException("User ID must be a positive integer.");
+        }
+
+        String sql = "SELECT user_id, name, email, role FROM users WHERE user_id = ?";
+        try (Connection connection = DatabaseConnection.getConnection();
+                PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setInt(1, userId);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                if (!resultSet.next()) {
+                    throw new UserNotFoundException("User " + userId + " was not found.");
+                }
+                return createUser(resultSet.getInt("user_id"),
+                        resultSet.getString("name"), resultSet.getString("email"),
+                        resultSet.getString("role").trim().toUpperCase(Locale.ROOT));
+            }
+        }
+    }
+
     /** Loads the profile for the currently logged-in user and refreshes its session data. */
-    public User viewCurrentProfile() throws SQLException {
+    public User viewCurrentProfile() throws SQLException, UserNotFoundException {
         User currentUser = requireLoggedInUser();
         String sql = "SELECT name, email FROM users WHERE user_id = ?";
 
@@ -93,7 +114,7 @@ public class UserDAO {
             statement.setInt(1, Integer.parseInt(currentUser.getUserId()));
             try (ResultSet resultSet = statement.executeQuery()) {
                 if (!resultSet.next()) {
-                    throw new SQLException("The current user's profile was not found.");
+                    throw new UserNotFoundException("The current user's profile was not found.");
                 }
                 currentUser.setName(resultSet.getString("name"));
                 currentUser.setEmail(resultSet.getString("email"));
@@ -103,7 +124,8 @@ public class UserDAO {
     }
 
     /** Updates only the logged-in user's name and email. Returns false for an existing email. */
-    public boolean updateCurrentProfile(String name, String email) throws SQLException {
+    public boolean updateCurrentProfile(String name, String email)
+            throws SQLException, UserNotFoundException {
         User currentUser = requireLoggedInUser();
         if (isBlank(name)) {
             throw new IllegalArgumentException("Name is required.");
@@ -135,12 +157,13 @@ public class UserDAO {
                 currentUser.setEmail(cleanEmail);
                 return true;
             }
-            return false;
+            throw new UserNotFoundException("The current user's profile was not found.");
         }
     }
 
     /** Changes the logged-in user's password using the same salted PBKDF2 hash as registration. */
-    public boolean changeCurrentPassword(char[] newPassword) throws SQLException {
+    public boolean changeCurrentPassword(char[] newPassword)
+            throws SQLException, UserNotFoundException {
         User currentUser = requireLoggedInUser();
         if (newPassword == null || newPassword.length == 0) {
             throw new IllegalArgumentException("New password is required.");
@@ -152,7 +175,10 @@ public class UserDAO {
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, newPasswordHash);
             statement.setInt(2, Integer.parseInt(currentUser.getUserId()));
-            return statement.executeUpdate() == 1;
+            if (statement.executeUpdate() == 1) {
+                return true;
+            }
+            throw new UserNotFoundException("The current user's profile was not found.");
         }
     }
 
