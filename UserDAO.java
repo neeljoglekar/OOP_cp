@@ -59,6 +59,15 @@ public class UserDAO {
      * A successful login becomes the application's current user.
      */
     public User login(String email, char[] password) throws SQLException {
+        User user = authenticate(email, password);
+        if (user != null) {
+            UserSession.setCurrentUser(user);
+        }
+        return user;
+    }
+
+    /** Authenticates without changing the console application's global UserSession. */
+    public User authenticate(String email, char[] password) throws SQLException {
         if (isBlank(email) || password == null || password.length == 0) {
             return null;
         }
@@ -77,7 +86,6 @@ public class UserDAO {
                         resultSet.getString("name"), resultSet.getString("email"),
                         resultSet.getString("role")
                                 .trim().toUpperCase(Locale.ROOT));
-                UserSession.setCurrentUser(user);
                 return user;
             }
         }
@@ -106,7 +114,12 @@ public class UserDAO {
 
     /** Loads the profile for the currently logged-in user and refreshes its session data. */
     public User viewCurrentProfile() throws SQLException, UserNotFoundException {
-        User currentUser = requireLoggedInUser();
+        return viewProfile(requireLoggedInUser());
+    }
+
+    /** Loads the profile for the user identified by an already-authenticated caller. */
+    public User viewProfile(User profileUser) throws SQLException, UserNotFoundException {
+        User currentUser = requireUser(profileUser);
         String sql = "SELECT name, email FROM users WHERE user_id = ?";
 
         try (Connection connection = DatabaseConnection.getConnection();
@@ -126,7 +139,13 @@ public class UserDAO {
     /** Updates only the logged-in user's name and email. Returns false for an existing email. */
     public boolean updateCurrentProfile(String name, String email)
             throws SQLException, UserNotFoundException {
-        User currentUser = requireLoggedInUser();
+        return updateProfile(requireLoggedInUser(), name, email);
+    }
+
+    /** Updates only the profile represented by an already-authenticated user object. */
+    public boolean updateProfile(User profileUser, String name, String email)
+            throws SQLException, UserNotFoundException {
+        User currentUser = requireUser(profileUser);
         if (isBlank(name)) {
             throw new IllegalArgumentException("Name is required.");
         }
@@ -164,7 +183,13 @@ public class UserDAO {
     /** Changes the logged-in user's password using the same salted PBKDF2 hash as registration. */
     public boolean changeCurrentPassword(char[] newPassword)
             throws SQLException, UserNotFoundException {
-        User currentUser = requireLoggedInUser();
+        return changePassword(requireLoggedInUser(), newPassword);
+    }
+
+    /** Changes the password for an already-authenticated user object. */
+    public boolean changePassword(User profileUser, char[] newPassword)
+            throws SQLException, UserNotFoundException {
+        User currentUser = requireUser(profileUser);
         if (newPassword == null || newPassword.length == 0) {
             throw new IllegalArgumentException("New password is required.");
         }
@@ -188,6 +213,13 @@ public class UserDAO {
             throw new IllegalStateException("You must be logged in to manage a profile.");
         }
         return currentUser;
+    }
+
+    private User requireUser(User user) {
+        if (user == null) {
+            throw new IllegalStateException("An authenticated user is required.");
+        }
+        return user;
     }
 
     private void validateRequiredFields(int userId, String name, String email,

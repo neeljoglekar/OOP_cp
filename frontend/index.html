@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#f6f5f1">
+    <title>Online Auction Simulator</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="js/app.js" defer></script>
+</head>
+<body>
+    <header class="site-header">
+        <a class="brand" href="#top" aria-label="Online Auction Simulator home">
+            <span class="brand-mark" aria-hidden="true">OA</span>
+            <span>Online Auction Simulator</span>
+        </a>
+        <nav aria-label="Main navigation">
+            <a class="nav-link" href="#auctions">Auctions</a>
+            <span id="api-status" class="api-status" role="status" aria-live="polite">
+                <span class="status-dot" aria-hidden="true"></span>
+                Checking API…
+            </span>
+        </nav>
+    </header>
+
+    <main id="top">
+        <section class="hero" aria-labelledby="page-title">
+            <div class="hero-copy">
+                <p class="eyebrow">A simple place to discover interesting finds</p>
+                <h1 id="page-title">Online Auction Simulator</h1>
+                <p class="hero-description">Browse live auctions and view current bidding information.</p>
+                <a class="primary-link" href="#auctions">Browse auctions <span aria-hidden="true">↓</span></a>
+            </div>
+            <div class="hero-note" aria-label="Auction data source">
+                <span class="note-icon" aria-hidden="true">↗</span>
+                <p>Live information<br><strong>from the auction API</strong></p>
+            </div>
+        </section>
+
+        <section class="account-section" aria-labelledby="account-heading">
+            <div class="account-heading">
+                <div>
+                    <p class="eyebrow">Account</p>
+                    <h2 id="account-heading">Sign in to bid</h2>
+                </div>
+            </div>
+            <div id="auth-options" class="auth-options">
+                <button id="show-register-button" class="text-button" type="button">Create an account</button>
+            </div>
+            <form id="login-form" class="login-form">
+                <label>
+                    <span>Email</span>
+                    <input id="login-email" name="email" type="email" autocomplete="username" required>
+                </label>
+                <label>
+                    <span>Password</span>
+                    <input id="login-password" name="password" type="password"
+                           autocomplete="current-password" required>
+                </label>
+                <button id="login-button" class="submit-button" type="submit">Log in</button>
+            </form>
+            <form id="registration-form" class="account-form" hidden>
+                <label>
+                    <span>User ID</span>
+                    <input id="registration-user-id" name="userId" type="number" min="1" step="1" required>
+                </label>
+                <label>
+                    <span>Name</span>
+                    <input id="registration-name" name="name" type="text" autocomplete="name" required>
+                </label>
+                <label>
+                    <span>Email</span>
+                    <input id="registration-email" name="email" type="email" autocomplete="email" required>
+                </label>
+                <label>
+                    <span>Password</span>
+                    <input id="registration-password" name="password" type="password" autocomplete="new-password" required>
+                </label>
+                <label>
+                    <span>Role</span>
+                    <select id="registration-role" name="role" required>
+                        <option value="BUYER">Buyer</option>
+                        <option value="SELLER">Seller</option>
+                    </select>
+                </label>
+                <div class="account-form-actions">
+                    <button id="register-button" class="submit-button" type="submit">Register</button>
+                    <button id="show-login-button" class="text-button" type="button">Back to login</button>
+                </div>
+            </form>
+            <div id="registration-message" class="account-message" role="status" aria-live="polite" hidden></div>
+            <div id="login-message" class="account-message" role="status" aria-live="polite" hidden></div>
+            <div id="logged-in-panel" class="logged-in-panel" hidden>
+                <div>
+                    <p class="eyebrow">Logged in as</p>
+                    <strong id="logged-in-name"></strong>
+                    <span id="logged-in-role"></span>
+                    <span id="logged-in-id"></span>
+                </div>
+                <div class="logged-in-actions">
+                    <button id="view-profile-button" class="button" type="button">Profile</button>
+                    <button id="edit-profile-button" class="button" type="button">Edit profile</button>
+                    <button id="logout-button" class="button" type="button">Log out</button>
+                </div>
+            </div>
+            <section id="profile-panel" class="profile-panel" aria-labelledby="profile-heading" hidden>
+                <h3 id="profile-heading">My profile</h3>
+                <dl class="profile-details">
+                    <div><dt>User ID</dt><dd id="profile-user-id"></dd></div>
+                    <div><dt>Name</dt><dd id="profile-name"></dd></div>
+                    <div><dt>Email</dt><dd id="profile-email"></dd></div>
+                    <div><dt>Role</dt><dd id="profile-role"></dd></div>
+                </dl>
+                <div id="profile-message" class="account-message" role="status" aria-live="polite" hidden></div>
+            </section>
+            <form id="profile-form" class="account-form profile-form" hidden>
+                <h3>Edit profile</h3>
+                <label>
+                    <span>Name</span>
+                    <input id="profile-edit-name" name="name" type="text" autocomplete="name" required>
+                </label>
+                <label>
+                    <span>Email</span>
+                    <input id="profile-edit-email" name="email" type="email" autocomplete="email" required>
+                </label>
+                <label>
+                    <span>New password <small>(leave blank to keep current password)</small></span>
+                    <input id="profile-edit-password" name="password" type="password" autocomplete="new-password">
+                </label>
+                <div class="account-form-actions">
+                    <button id="save-profile-button" class="submit-button" type="submit">Save changes</button>
+                    <button id="cancel-profile-button" class="text-button" type="button">Cancel</button>
+                </div>
+                <div id="profile-edit-message" class="account-message" role="status" aria-live="polite" hidden></div>
+            </form>
+            <section id="seller-dashboard" class="profile-panel seller-dashboard"
+                     aria-labelledby="seller-dashboard-heading" hidden>
+                <div class="section-heading">
+                    <div>
+                        <p class="eyebrow">Seller tools</p>
+                        <h3 id="seller-dashboard-heading">Create an auction</h3>
+                    </div>
+                    <button id="show-create-auction-button" class="button" type="button">
+                        Create auction
+                    </button>
+                </div>
+                <p class="form-note">Auction details are kept in memory by the running Java API.</p>
+                <form id="create-auction-form" class="account-form" hidden>
+                    <label>
+                        <span>Auction ID</span>
+                        <input id="create-auction-id" name="auctionId" type="text" required>
+                    </label>
+                    <label>
+                        <span>Product ID</span>
+                        <input id="create-product-id" name="productId" type="text" required>
+                    </label>
+                    <label>
+                        <span>Product name</span>
+                        <input id="create-product-name" name="productName" type="text" required>
+                    </label>
+                    <label>
+                        <span>Description</span>
+                        <textarea id="create-product-description" name="description" rows="3" required></textarea>
+                    </label>
+                    <label>
+                        <span>Condition</span>
+                        <input id="create-product-condition" name="condition" type="text" required>
+                    </label>
+                    <label>
+                        <span>Auction end time</span>
+                        <input id="create-auction-end-time" name="endTime" type="datetime-local" required>
+                    </label>
+                    <label>
+                        <span>Minimum bid increment</span>
+                        <input id="create-auction-increment" name="minimumBidIncrement"
+                               type="number" min="0" step="any" required>
+                    </label>
+                    <div class="account-form-actions">
+                        <button id="create-auction-submit" class="submit-button" type="submit">
+                            Create auction
+                        </button>
+                        <button id="cancel-create-auction-button" class="text-button" type="button">
+                            Cancel
+                        </button>
+                    </div>
+                    <div id="seller-auction-message" class="account-message"
+                         role="status" aria-live="polite" hidden></div>
+                </form>
+            </section>
+        </section>
+
+        <section id="auctions" class="auction-section" aria-labelledby="auction-heading">
+            <div class="section-heading">
+                <div>
+                    <p class="eyebrow">Explore what is available</p>
+                    <h2 id="auction-heading">Current auctions</h2>
+                </div>
+                <span id="auction-count" class="auction-count"></span>
+            </div>
+
+            <div id="page-message" class="message" role="status" aria-live="polite" hidden></div>
+            <div id="auction-list" class="auction-grid" aria-live="polite"></div>
+        </section>
+
+        <section id="auction-details" class="details-section" aria-labelledby="details-heading" hidden>
+            <div class="section-heading">
+                <div>
+                    <p class="eyebrow">Auction information</p>
+                    <h2 id="details-heading">Auction details</h2>
+                </div>
+                <button id="close-details" class="text-button" type="button">Close details</button>
+            </div>
+            <div class="live-toolbar" aria-live="polite">
+                <span id="live-update-status" class="live-update-status">Live updates: OFF</span>
+                <span id="last-updated" class="last-updated">Last updated: —</span>
+            </div>
+            <div id="details-content" class="details-card"></div>
+            <form id="bid-form" class="bid-form" hidden>
+                <div class="bid-form-heading">
+                    <div>
+                        <p class="eyebrow">Take part in this auction</p>
+                        <h3>Place a bid</h3>
+                    </div>
+                    <span class="demo-label">Development/demo input</span>
+                </div>
+                <p id="bid-access-message" class="form-note"></p>
+                <div class="form-fields">
+                    <span id="bid-account" class="bid-account"></span>
+                    <label>
+                        <span>Bid amount</span>
+                        <input id="bid-amount" name="amount" type="text" inputmode="decimal"
+                               autocomplete="off" required>
+                    </label>
+                    <button id="place-bid-button" class="submit-button" type="submit">Place bid</button>
+                </div>
+                <div id="bid-message" class="bid-message" role="status" aria-live="polite" hidden></div>
+            </form>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <span>Online Auction Simulator</span>
+        <span>Student project · Auction data provided by the Java API</span>
+    </footer>
+</body>
+</html>

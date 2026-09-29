@@ -18,7 +18,7 @@ public class AuctionSystem {
         users.add(user);
     }
 
-    public void addProduct(Product product) {
+    public synchronized void addProduct(Product product) {
         products.add(product);
     }
 
@@ -26,21 +26,34 @@ public class AuctionSystem {
         return createAuction(auctionId, product, seller, LocalDateTime.MAX);
     }
 
-    public Auction createAuction(String auctionId, Product product, Seller seller,
+    public synchronized Auction createAuction(String auctionId, Product product, Seller seller,
             LocalDateTime endTime) {
+        ensureAuctionIdIsAvailable(auctionId);
         Auction auction = new Auction(auctionId, product, seller, endTime);
         auctions.add(auction);
         return auction;
     }
 
-    public Auction createAuction(String auctionId, Product product, Seller seller,
+    public synchronized Auction createAuction(String auctionId, Product product, Seller seller,
             LocalDateTime endTime, double minimumBidIncrement) {
+        ensureAuctionIdIsAvailable(auctionId);
         Auction auction = new Auction(auctionId, product, seller, endTime, minimumBidIncrement);
         auctions.add(auction);
         return auction;
     }
 
-    public Auction getAuction(String auctionId) throws AuctionNotFoundException {
+    private void ensureAuctionIdIsAvailable(String auctionId) {
+        if (auctionId == null || auctionId.trim().isEmpty()) {
+            throw new IllegalArgumentException("Auction ID is required.");
+        }
+        for (Auction auction : auctions) {
+            if (auctionId.equals(auction.getAuctionId())) {
+                throw new IllegalArgumentException("Auction ID already exists.");
+            }
+        }
+    }
+
+    public synchronized Auction getAuction(String auctionId) throws AuctionNotFoundException {
         for (Auction auction : auctions) {
             if (auction.getAuctionId().equals(auctionId)) {
                 return auction;
@@ -57,7 +70,7 @@ public class AuctionSystem {
         return Collections.unmodifiableList(products);
     }
 
-    public List<Auction> getAuctions() {
-        return Collections.unmodifiableList(auctions);
+    public synchronized List<Auction> getAuctions() {
+        return Collections.unmodifiableList(new ArrayList<>(auctions));
     }
 }
