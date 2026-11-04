@@ -4,6 +4,10 @@ const apiStatus = document.querySelector('#api-status');
 const auctionList = document.querySelector('#auction-list');
 const auctionCount = document.querySelector('#auction-count');
 const pageMessage = document.querySelector('#page-message');
+const auctionSearchInput = document.querySelector('#auction-search');
+const auctionStatusFilter = document.querySelector('#auction-status-filter');
+const auctionConditionFilter = document.querySelector('#auction-condition-filter');
+const auctionSortSelect = document.querySelector('#auction-sort');
 const detailsSection = document.querySelector('#auction-details');
 const detailsContent = document.querySelector('#details-content');
 const bidForm = document.querySelector('#bid-form');
@@ -43,6 +47,14 @@ const viewProfileButton = document.querySelector('#view-profile-button');
 const editProfileButton = document.querySelector('#edit-profile-button');
 const saveProfileButton = document.querySelector('#save-profile-button');
 const sellerDashboard = document.querySelector('#seller-dashboard');
+const sellerAuctionsPanel = document.querySelector('#seller-auctions-panel');
+const sellerAuctionsList = document.querySelector('#seller-auctions-list');
+const sellerAuctionsEmpty = document.querySelector('#seller-auctions-empty');
+const sellerAuctionsError = document.querySelector('#seller-auctions-error');
+const buyerBidsPanel = document.querySelector('#buyer-bids-panel');
+const buyerBidsList = document.querySelector('#buyer-bids-list');
+const buyerBidsEmpty = document.querySelector('#buyer-bids-empty');
+const buyerBidsError = document.querySelector('#buyer-bids-error');
 const showCreateAuctionButton = document.querySelector('#show-create-auction-button');
 const createAuctionForm = document.querySelector('#create-auction-form');
 const createAuctionIdInput = document.querySelector('#create-auction-id');
@@ -75,6 +87,8 @@ let profileLoaded = false;
 let profileEditorOpen = false;
 let auctionCreationInProgress = false;
 let createAuctionFormOpen = false;
+let allAuctions = [];
+let roleDashboardRequestInProgress = false;
 
 document.querySelector('#close-details').addEventListener('click', () => {
     if (bidRequestInProgress) {
@@ -116,6 +130,10 @@ window.addEventListener('beforeunload', () => {
     stopAuctionPolling();
     stopAuctionListPolling();
 });
+auctionSearchInput.addEventListener('input', renderFilteredAuctions);
+auctionStatusFilter.addEventListener('change', renderFilteredAuctions);
+auctionConditionFilter.addEventListener('change', renderFilteredAuctions);
+auctionSortSelect.addEventListener('change', renderFilteredAuctions);
 
 function setApiStatus(connected) {
     apiStatus.classList.toggle('connected', connected);
@@ -283,6 +301,8 @@ function updateAuthenticationUI() {
     profilePanel.hidden = !loggedIn || !profileLoaded;
     profileForm.hidden = !loggedIn || !profileEditorOpen;
     sellerDashboard.hidden = !isLoggedInSeller();
+    sellerAuctionsPanel.hidden = !isLoggedInSeller();
+    buyerBidsPanel.hidden = !isLoggedInBuyer();
     createAuctionForm.hidden = !isLoggedInSeller() || !createAuctionFormOpen;
     showCreateAuctionButton.disabled = auctionCreationInProgress;
     createAuctionButton.disabled = auctionCreationInProgress;
@@ -302,6 +322,12 @@ function updateAuthenticationUI() {
         createAuctionFormOpen = false;
         createAuctionForm.reset();
         sellerAuctionMessage.hidden = true;
+        sellerAuctionsList.replaceChildren();
+        buyerBidsList.replaceChildren();
+        sellerAuctionsEmpty.hidden = true;
+        sellerAuctionsError.hidden = true;
+        buyerBidsEmpty.hidden = true;
+        buyerBidsError.hidden = true;
     }
 
     const canBid = isLoggedInBuyer();
@@ -376,6 +402,7 @@ async function submitAuctionCreation(event) {
                 : `Auction ${auctionId} created for ${productName}. Ends ${formatDate(endTime)}; minimum increment ${formatAmount(minimumBidIncrement)}.`,
             false);
         const refreshed = await loadAuctions();
+        await loadRoleDashboard();
         if (!refreshed) {
             showAccountMessage(sellerAuctionMessage,
                 'Auction created, but the auction list could not be refreshed.', false);
@@ -433,6 +460,7 @@ async function submitLogin(event) {
         profileLoaded = false;
         profileEditorOpen = false;
         updateAuthenticationUI();
+        loadRoleDashboard();
         loginPasswordInput.value = '';
         showLoginMessage('Login successful.', false);
     } catch (error) {
@@ -682,19 +710,29 @@ function getHighestBidAmount(auction) {
     return highest && typeof highest.amount === 'number' ? highest.amount : null;
 }
 
+function getAuctionStatusDisplay(status) {
+    const normalized = String(status || '').toLowerCase();
+    if (normalized === 'open') return { label: 'Active', className: 'open' };
+    if (normalized === 'expired') return { label: 'Expired', className: 'expired' };
+    if (normalized.includes('closed')) return { label: 'Closed', className: 'closed' };
+    return { label: displayValue(status, 'Unknown'), className: 'unknown' };
+}
+
 function renderAuction(auction) {
     const product = auction.product || {};
     const highestBid = auction.currentHighestBid;
-    const status = displayValue(auction.status, 'Unknown').toLowerCase();
+    const status = getAuctionStatusDisplay(auction.status);
+    const auctionEnded = status.className !== 'open';
     const card = createElement('article', 'auction-card');
     const topLine = createElement('div', 'card-topline');
     topLine.append(createElement('span', 'product-condition', displayValue(product.condition, 'Condition TBD')));
-    topLine.append(createElement('span', `auction-status ${status}`, displayValue(auction.status, 'Unknown')));
+    topLine.append(createElement('span', `auction-status ${status.className}`, status.label));
 
     const title = createElement('h3', '', displayValue(product.name, 'Untitled product'));
     const description = createElement('p', 'product-description', displayValue(product.description, 'No description provided.'));
     const facts = createElement('div', 'auction-facts');
-    addFact(facts, 'Current highest bid', formatAmount(getHighestBidAmount(auction)));
+    addFact(facts, auctionEnded ? 'Final winning bid' : 'Current highest bid',
+        formatAmount(getHighestBidAmount(auction)));
     addFact(facts, 'Highest bidder', displayValue(
         highestBid && highestBid.buyerName ? highestBid.buyerName : null, 'No bids yet'));
     addFact(facts, 'Winner', displayValue(
@@ -718,15 +756,158 @@ function renderAuctions(data) {
         throw new Error('The auction server returned auction data in an unexpected format.');
     }
 
+    allAuctions = data.auctions.slice();
+    updateConditionOptions(allAuctions);
+    renderFilteredAuctions();
+}
+
+function updateConditionOptions(auctions) {
+    const selectedCondition = auctionConditionFilter.value;
+    const conditionsByKey = new Map();
+    auctions.forEach((auction) => {
+        const condition = auction.product && typeof auction.product.condition === 'string'
+            ? auction.product.condition.trim() : '';
+        if (condition) conditionsByKey.set(condition.toLowerCase(), condition);
+    });
+
+    auctionConditionFilter.replaceChildren(createElement('option', '', 'All conditions'));
+    auctionConditionFilter.options[0].value = 'all';
+    [...conditionsByKey.values()].sort((first, second) => first.localeCompare(second))
+        .forEach((condition) => {
+            const option = createElement('option', '', condition);
+            option.value = condition;
+            auctionConditionFilter.append(option);
+        });
+    auctionConditionFilter.value = [...conditionsByKey.values()]
+        .some((condition) => condition.toLowerCase() === selectedCondition.toLowerCase())
+        ? selectedCondition : 'all';
+}
+
+function renderFilteredAuctions() {
+    const search = auctionSearchInput.value.trim().toLowerCase();
+    const statusFilter = auctionStatusFilter.value;
+    const conditionFilter = auctionConditionFilter.value.toLowerCase();
+    const sortBy = auctionSortSelect.value;
+    const filtered = allAuctions.filter((auction) => {
+        const product = auction.product || {};
+        const status = String(auction.status || '').toLowerCase();
+        const condition = String(product.condition || '').toLowerCase();
+        const nameMatches = String(product.name || '').toLowerCase().includes(search);
+        const statusMatches = statusFilter === 'all'
+            || (statusFilter === 'active' && status === 'open')
+            || (statusFilter === 'ended' && status !== 'open');
+        const conditionMatches = conditionFilter === 'all' || condition === conditionFilter;
+        return nameMatches && statusMatches && conditionMatches;
+    });
+
+    const sorted = filtered.slice();
+    if (sortBy === 'highest-bid') {
+        sorted.sort((first, second) => (getHighestBidAmount(second) || 0)
+            - (getHighestBidAmount(first) || 0));
+    } else if (sortBy === 'lowest-bid') {
+        sorted.sort((first, second) => (getHighestBidAmount(first) || 0)
+            - (getHighestBidAmount(second) || 0));
+    } else {
+        sorted.sort((first, second) => getEndTimestamp(first) - getEndTimestamp(second));
+    }
+
     auctionList.replaceChildren();
-    auctionCount.textContent = `${data.auctions.length} ${data.auctions.length === 1 ? 'auction' : 'auctions'}`;
-    if (data.auctions.length === 0) {
-        showMessage('There are no auctions available right now.', 'empty');
+    auctionCount.textContent = sorted.length === allAuctions.length
+        ? `${allAuctions.length} ${allAuctions.length === 1 ? 'auction' : 'auctions'}`
+        : `${sorted.length} of ${allAuctions.length} auctions`;
+    if (sorted.length === 0) {
+        showMessage(allAuctions.length === 0
+            ? 'There are no auctions available right now.'
+            : 'No auctions match your search and filters.', 'empty');
         return;
     }
 
     hideMessage();
-    data.auctions.forEach((auction) => auctionList.append(renderAuction(auction)));
+    sorted.forEach((auction) => auctionList.append(renderAuction(auction)));
+}
+
+function getEndTimestamp(auction) {
+    const timestamp = parseApiDateTime(auction.endTime).getTime();
+    return Number.isNaN(timestamp) ? Number.POSITIVE_INFINITY : timestamp;
+}
+
+async function loadRoleDashboard() {
+    if (!currentUser || roleDashboardRequestInProgress) return;
+    const isSeller = isLoggedInSeller();
+    const isBuyer = isLoggedInBuyer();
+    if (!isSeller && !isBuyer) return;
+
+    const requestedUserId = String(currentUser.userId);
+    roleDashboardRequestInProgress = true;
+    try {
+        if (isSeller) {
+            sellerAuctionsError.hidden = true;
+            sellerAuctionsEmpty.hidden = true;
+            const data = await fetchAuthenticatedJson(`${API_BASE_URL}/my-auctions`);
+            if (!currentUser || String(currentUser.userId) !== requestedUserId
+                    || !isLoggedInSeller()) return;
+            if (!Array.isArray(data.auctions)) throw new Error('Unexpected seller auction data.');
+            sellerAuctionsList.replaceChildren();
+            sellerAuctionsEmpty.hidden = data.auctions.length !== 0;
+            data.auctions.forEach((auction) => sellerAuctionsList.append(renderAuction(auction)));
+        } else {
+            buyerBidsError.hidden = true;
+            buyerBidsEmpty.hidden = true;
+            const data = await fetchAuthenticatedJson(`${API_BASE_URL}/my-bids`);
+            if (!currentUser || String(currentUser.userId) !== requestedUserId
+                    || !isLoggedInBuyer()) return;
+            if (!Array.isArray(data.auctions)) throw new Error('Unexpected buyer bid data.');
+            buyerBidsList.replaceChildren();
+            buyerBidsEmpty.hidden = data.auctions.length !== 0;
+            data.auctions.forEach((entry) => buyerBidsList.append(renderMyBid(entry)));
+        }
+    } catch (error) {
+        if (!error || error.status !== 401) {
+            if (isSeller) sellerAuctionsError.hidden = false;
+            if (isBuyer) buyerBidsError.hidden = false;
+        }
+    } finally {
+        roleDashboardRequestInProgress = false;
+    }
+}
+
+function renderMyBid(entry) {
+    const auction = entry.auction || {};
+    const highestBid = auction.currentHighestBid;
+    const status = String(auction.status || '').toLowerCase();
+    const statusDisplay = getAuctionStatusDisplay(auction.status);
+    const ended = status !== 'open';
+    const buyerIsLeading = Boolean(highestBid
+        && String(highestBid.buyerId) === String(currentUser.userId));
+    const buyerWon = Boolean(ended && auction.winner
+        && String(auction.winner.userId) === String(currentUser.userId));
+    const card = createElement('article', 'auction-card');
+    const topLine = createElement('div', 'card-topline');
+    topLine.append(createElement('span', 'product-condition',
+        displayValue(auction.product && auction.product.condition, 'Condition TBD')));
+    topLine.append(createElement('span', `auction-status ${statusDisplay.className}`,
+        statusDisplay.label));
+    card.append(topLine);
+    card.append(createElement('h4', '', displayValue(
+        auction.product && auction.product.name, 'Untitled product')));
+    card.append(createElement('p', 'auction-id', `Auction ${displayValue(auction.auctionId, '—')}`));
+
+    const facts = createElement('div', 'auction-facts');
+    addFact(facts, 'Your highest bid', formatAmount(entry.myHighestBid && entry.myHighestBid.amount));
+    addFact(facts, 'Current highest bid', formatAmount(getHighestBidAmount(auction)));
+    addFact(facts, 'Auction ends', formatDate(auction.endTime));
+    addFact(facts, 'Your position', ended
+        ? (buyerWon ? 'You won' : 'You lost')
+        : (buyerIsLeading ? 'Currently leading' : 'Not currently leading'));
+    card.append(facts);
+
+    const actions = createElement('div', 'card-actions');
+    const viewButton = createElement('button', 'button', 'View auction');
+    viewButton.type = 'button';
+    viewButton.addEventListener('click', () => loadAuctionDetails(auction.auctionId));
+    actions.append(viewButton);
+    card.append(actions);
+    return card;
 }
 
 function appendDetail(container, label, value) {
@@ -736,6 +917,36 @@ function appendDetail(container, label, value) {
     item.append(detailValue);
     container.append(item);
     return detailValue;
+}
+
+function renderBidHistory(bids) {
+    const section = createElement('section', 'bid-history');
+    section.append(createElement('h4', '', 'Bid history'));
+    if (!Array.isArray(bids) || bids.length === 0) {
+        section.append(createElement('p', 'form-note', 'No bids have been placed yet.'));
+        return section;
+    }
+
+    const newestFirst = bids.slice().sort((first, second) => {
+        const firstTime = parseApiDateTime(first.timestamp).getTime();
+        const secondTime = parseApiDateTime(second.timestamp).getTime();
+        const byMilliseconds = (Number.isNaN(secondTime) ? 0 : secondTime)
+            - (Number.isNaN(firstTime) ? 0 : firstTime);
+        return byMilliseconds || String(second.timestamp || '').localeCompare(
+            String(first.timestamp || ''));
+    });
+    const list = createElement('ol', 'bid-history-list');
+    newestFirst.forEach((bid) => {
+        const entry = createElement('li', 'bid-history-entry');
+        const bidder = createElement('strong', '', displayValue(bid.buyerName, 'Unknown bidder'));
+        const amount = createElement('span', '', formatAmount(bid.amount));
+        const timestamp = createElement('time', '', formatDate(bid.timestamp));
+        if (typeof bid.timestamp === 'string') timestamp.dateTime = bid.timestamp;
+        entry.append(bidder, amount, timestamp);
+        list.append(entry);
+    });
+    section.append(list);
+    return section;
 }
 
 function renderDetails(auction, shouldScroll = false) {
@@ -762,6 +973,7 @@ function renderDetails(auction, shouldScroll = false) {
     appendDetail(facts, 'Winner', auction.winner && auction.winner.name
         ? auction.winner.name : 'Not determined');
     detailsContent.append(facts);
+    detailsContent.append(renderBidHistory(auction.bids));
     detailsSection.hidden = false;
     if (shouldScroll) detailsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
     updateCountdown();
@@ -916,6 +1128,7 @@ async function submitBid(event) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(requestBody)
         });
+        await loadRoleDashboard();
 
         bidAmountInput.value = '';
         showBidMessage('Bid accepted. Refreshing auction details.');
@@ -984,7 +1197,9 @@ async function loadAuctions() {
 function startAuctionListPolling() {
     if (auctionListPollingTimer !== null) return;
     auctionListPollingTimer = window.setInterval(() => {
-        if (auctionListLoadPromise === null) loadAuctions();
+        if (auctionListLoadPromise === null) {
+            loadAuctions().then(() => loadRoleDashboard());
+        }
     }, AUCTION_POLL_INTERVAL_MS);
 }
 
@@ -1013,6 +1228,7 @@ async function initializePage() {
     }
     const connected = await checkApiHealth();
     const loaded = await loadAuctions();
+    if (currentUser) await loadRoleDashboard();
     if (!connected || !loaded) setApiStatus(false);
     startAuctionListPolling();
 }

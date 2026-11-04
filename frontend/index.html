@@ -133,6 +133,24 @@
                 </div>
                 <div id="profile-edit-message" class="account-message" role="status" aria-live="polite" hidden></div>
             </form>
+            <section id="seller-auctions-panel" class="profile-panel user-auctions-panel"
+                     aria-labelledby="seller-auctions-heading" hidden>
+                <h3 id="seller-auctions-heading">My auctions</h3>
+                <div id="seller-auctions-list" class="user-auctions-list"></div>
+                <p id="seller-auctions-empty" class="form-note" hidden>You have not created any auctions yet.</p>
+                <p id="seller-auctions-error" class="account-message error" role="status" hidden>
+                    Your auctions could not be loaded. Please try again.
+                </p>
+            </section>
+            <section id="buyer-bids-panel" class="profile-panel user-auctions-panel"
+                     aria-labelledby="buyer-bids-heading" hidden>
+                <h3 id="buyer-bids-heading">My bids</h3>
+                <div id="buyer-bids-list" class="user-auctions-list"></div>
+                <p id="buyer-bids-empty" class="form-note" hidden>You have not placed any bids yet.</p>
+                <p id="buyer-bids-error" class="account-message error" role="status" hidden>
+                    Your bidding history could not be loaded. Please try again.
+                </p>
+            </section>
             <section id="seller-dashboard" class="profile-panel seller-dashboard"
                      aria-labelledby="seller-dashboard-heading" hidden>
                 <div class="section-heading">
@@ -199,6 +217,35 @@
             </div>
 
             <div id="page-message" class="message" role="status" aria-live="polite" hidden></div>
+            <div class="auction-controls" aria-label="Search, filter, and sort auctions">
+                <label>
+                    <span>Search by product name</span>
+                    <input id="auction-search" type="search" autocomplete="off"
+                           placeholder="Search auctions">
+                </label>
+                <label>
+                    <span>Status</span>
+                    <select id="auction-status-filter">
+                        <option value="all">All auctions</option>
+                        <option value="active">Active</option>
+                        <option value="ended">Closed or expired</option>
+                    </select>
+                </label>
+                <label>
+                    <span>Condition</span>
+                    <select id="auction-condition-filter">
+                        <option value="all">All conditions</option>
+                    </select>
+                </label>
+                <label>
+                    <span>Sort by</span>
+                    <select id="auction-sort">
+                        <option value="ending-soon">Ending soon</option>
+                        <option value="highest-bid">Highest bid</option>
+                        <option value="lowest-bid">Lowest bid</option>
+                    </select>
+                </label>
+            </div>
             <div id="auction-list" class="auction-grid" aria-live="polite"></div>
         </section>
 

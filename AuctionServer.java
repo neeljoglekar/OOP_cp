@@ -141,6 +141,24 @@ public class AuctionServer {
                 return;
             }
 
+            if ("/api/my-auctions".equals(path)) {
+                if (!"GET".equalsIgnoreCase(method)) {
+                    sendError(exchange, 405, "Use GET for this endpoint.");
+                    return;
+                }
+                sendMyAuctions(exchange);
+                return;
+            }
+
+            if ("/api/my-bids".equals(path)) {
+                if (!"GET".equalsIgnoreCase(method)) {
+                    sendError(exchange, 405, "Use GET for this endpoint.");
+                    return;
+                }
+                sendMyBids(exchange);
+                return;
+            }
+
             if ("/api/auctions".equals(path)) {
                 if ("GET".equalsIgnoreCase(method)) {
                     sendAuctionList(exchange);
@@ -446,6 +464,79 @@ public class AuctionServer {
         }
         json.append("]}");
         sendJson(exchange, 200, json.toString());
+    }
+
+    private void sendMyAuctions(HttpExchange exchange) throws IOException {
+        User authenticatedUser = requireAuthenticatedUser(exchange);
+        if (authenticatedUser == null) return;
+        if (!(authenticatedUser instanceof Seller)) {
+            sendError(exchange, 403, "Only a logged-in seller can view their auctions.");
+            return;
+        }
+
+        List<Auction> allAuctions = auctionSystem.getAuctions();
+        StringBuilder json = new StringBuilder("{\"success\":true,\"auctions\":[");
+        int count = 0;
+        for (Auction auction : allAuctions) {
+            Seller owner = auction.getSeller();
+            if (owner == null || !authenticatedUser.getUserId().equals(owner.getUserId())) {
+                continue;
+            }
+            if (count++ > 0) json.append(',');
+            json.append(auctionToJson(auction));
+        }
+        json.append("],\"count\":").append(count).append('}');
+        sendJson(exchange, 200, json.toString());
+    }
+
+    private void sendMyBids(HttpExchange exchange) throws IOException {
+        User authenticatedUser = requireAuthenticatedUser(exchange);
+        if (authenticatedUser == null) return;
+        if (!(authenticatedUser instanceof Buyer)) {
+            sendError(exchange, 403, "Only a logged-in buyer can view their bids.");
+            return;
+        }
+
+        List<Auction> allAuctions = auctionSystem.getAuctions();
+        StringBuilder json = new StringBuilder("{\"success\":true,\"auctions\":[");
+        int count = 0;
+        for (Auction auction : allAuctions) {
+            Bid buyerHighestBid = null;
+            for (Bid bid : auction.getBids()) {
+                if (bid.getBidder() != null
+                        && authenticatedUser.getUserId().equals(bid.getBidder().getUserId())
+                        && (buyerHighestBid == null || bid.getAmount() > buyerHighestBid.getAmount())) {
+                    buyerHighestBid = bid;
+                }
+            }
+            if (buyerHighestBid == null) continue;
+            if (count++ > 0) json.append(',');
+            json.append("{\"auction\":").append(myBidAuctionToJson(auction))
+                    .append(",\"myHighestBid\":").append(bidToJson(buyerHighestBid)).append('}');
+        }
+        json.append("],\"count\":").append(count).append('}');
+        sendJson(exchange, 200, json.toString());
+    }
+
+    private String myBidAuctionToJson(Auction auction) {
+        Product product = auction.getProduct();
+        Bid highestBid = auction.getHighestValidBid();
+        Buyer winner = auction.getWinner();
+        String highestBidJson = highestBid == null ? "null"
+                : "{\"buyerId\":" + jsonString(highestBid.getBidder().getUserId())
+                        + ",\"amount\":" + Double.toString(highestBid.getAmount()) + "}";
+        String winnerJson = winner == null ? "null"
+                : "{\"userId\":" + jsonString(winner.getUserId()) + "}";
+        return "{\"auctionId\":" + jsonString(auction.getAuctionId())
+                + ",\"product\":{" + "\"productId\":" + jsonString(product.getProductId())
+                + ",\"name\":" + jsonString(product.getName())
+                + ",\"description\":" + jsonString(product.getDescription())
+                + ",\"condition\":" + jsonString(product.getCondition()) + "}"
+                + ",\"currentHighestBid\":" + highestBidJson
+                + ",\"minimumBidIncrement\":" + Double.toString(auction.getMinimumBidIncrement())
+                + ",\"endTime\":" + jsonString(auction.getEndTime().toString())
+                + ",\"status\":" + jsonString(auction.getStatus())
+                + ",\"winner\":" + winnerJson + "}";
     }
 
     private void createAuction(HttpExchange exchange) throws IOException {
