@@ -6,6 +6,7 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
+import java.sql.Connection;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeParseException;
@@ -45,17 +46,40 @@ public class AuctionServer {
 
     private final AuctionSystem auctionSystem;
     private final UserDAO userDAO;
+    private final ProductDAO productDAO;
+    private final AuctionDAO auctionDAO;
+    private final boolean persistentAuctionStorage;
     private final RestSessionStore sessionStore = new RestSessionStore();
     private final HttpServer server;
     private final ExecutorService requestExecutor;
+    private boolean auctionsLoaded;
+    private boolean started;
 
     public AuctionServer(AuctionSystem auctionSystem, UserDAO userDAO, int port)
             throws IOException {
+        this(auctionSystem, userDAO, null, null, port, false);
+    }
+
+    /** Creates a server that loads and persists auctions through the supplied DAOs. */
+    public AuctionServer(AuctionSystem auctionSystem, UserDAO userDAO,
+            ProductDAO productDAO, AuctionDAO auctionDAO, int port) throws IOException {
+        this(auctionSystem, userDAO, productDAO, auctionDAO, port, true);
+    }
+
+    private AuctionServer(AuctionSystem auctionSystem, UserDAO userDAO,
+            ProductDAO productDAO, AuctionDAO auctionDAO, int port,
+            boolean persistentAuctionStorage) throws IOException {
         if (auctionSystem == null || userDAO == null) {
             throw new IllegalArgumentException("Auction system and user DAO are required.");
         }
+        if (persistentAuctionStorage && (productDAO == null || auctionDAO == null)) {
+            throw new IllegalArgumentException("Product and auction DAOs are required for persistent storage.");
+        }
         this.auctionSystem = auctionSystem;
         this.userDAO = userDAO;
+        this.productDAO = productDAO;
+        this.auctionDAO = auctionDAO;
+        this.persistentAuctionStorage = persistentAuctionStorage;
         this.server = HttpServer.create(new InetSocketAddress("127.0.0.1", port), 0);
         this.requestExecutor = Executors.newFixedThreadPool(4);
         this.server.setExecutor(requestExecutor);
@@ -63,7 +87,36 @@ public class AuctionServer {
     }
 
     public void start() {
+        if (started) throw new IllegalStateException("Auction server is already running.");
+        if (persistentAuctionStorage && !auctionsLoaded) {
+            loadPersistedAuctionsBeforeStart();
+        }
         server.start();
+        started = true;
+    }
+
+    private void loadPersistedAuctionsBeforeStart() {
+        try (Connection connection = DatabaseConnection.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                List<Product> products = productDAO.getAllProducts(connection);
+                List<Auction> auctions = auctionDAO.getAllAuctions(connection);
+                connection.commit();
+                auctionSystem.loadPersistedData(products, auctions);
+                auctionsLoaded = true;
+            } catch (SQLException | UserNotFoundException | RuntimeException exception) {
+                try {
+                    connection.rollback();
+                } catch (SQLException rollbackException) {
+                    exception.addSuppressed(rollbackException);
+                }
+                throw exception;
+            }
+        } catch (SQLException | UserNotFoundException | RuntimeException exception) {
+            throw new IllegalStateException(
+                    "Auction server startup failed: persisted products and auctions could not be loaded. "
+                            + "Check the database connection and auction data.", exception);
+        }
     }
 
     public void stop() {
@@ -212,7 +265,7 @@ public class AuctionServer {
         } catch (IllegalArgumentException exception) {
             sendError(exchange, 400, exception.getMessage());
         } catch (SQLException exception) {
-            sendError(exchange, 500, "The user lookup could not be completed.");
+            sendError(exchange, 500, "A database operation could not be completed.");
         } catch (RuntimeException exception) {
             sendError(exchange, 500, "The auction request could not be completed.");
         } finally {
@@ -539,7 +592,7 @@ public class AuctionServer {
                 + ",\"winner\":" + winnerJson + "}";
     }
 
-    private void createAuction(HttpExchange exchange) throws IOException {
+    private void createAuction(HttpExchange exchange) throws IOException, SQLException {
         User currentUser = requireAuthenticatedUser(exchange);
         if (currentUser == null) return;
         if (!(currentUser instanceof Seller)) {
@@ -572,28 +625,65 @@ public class AuctionServer {
         Seller seller = (Seller) currentUser;
         Auction auction;
         synchronized (auctionSystem) {
-            try {
-                auctionSystem.getAuction(request.auctionId);
+            if (auctionSystem.containsAuctionId(request.auctionId)) {
                 sendError(exchange, 409, "Auction ID already exists.");
                 return;
-            } catch (AuctionNotFoundException expected) {
-                // The ID is available. The system also checks uniqueness when creating it.
+            }
+            if (persistentAuctionStorage && auctionSystem.containsProductId(request.productId)) {
+                sendError(exchange, 409, "Product ID already exists.");
+                return;
             }
             try {
-                auction = seller.createAuction(auctionSystem, request.auctionId, product,
-                        endTime, minimumBidIncrement);
+                if (persistentAuctionStorage) {
+                    auction = new Auction(request.auctionId, product, seller,
+                            endTime, minimumBidIncrement);
+                    persistSellerAuction(product, auction);
+                } else {
+                    auction = seller.createAuction(auctionSystem, request.auctionId, product,
+                            endTime, minimumBidIncrement);
+                    seller.listProduct(auctionSystem, product);
+                }
             } catch (IllegalArgumentException exception) {
-                if ("Auction ID already exists.".equals(exception.getMessage())) {
+                if ("Auction ID already exists.".equals(exception.getMessage())
+                        || "Product ID already exists.".equals(exception.getMessage())) {
                     sendError(exchange, 409, exception.getMessage());
                     return;
                 }
                 throw exception;
+            } catch (SQLException exception) {
+                if (isConstraintViolation(exception)) {
+                    sendError(exchange, 409,
+                            "The product, auction, or seller conflicts with existing database data.");
+                    return;
+                }
+                throw exception;
             }
-            seller.listProduct(auctionSystem, product);
         }
         sendJson(exchange, 201, "{\"success\":true,\"message\":"
                 + jsonString("Auction created successfully.") + ",\"auction\":"
                 + auctionToJson(auction) + "}");
+    }
+
+    /** Persists the product and auction atomically, then publishes them in memory. */
+    private void persistSellerAuction(Product product, Auction auction) throws SQLException {
+        try (Connection connection = DatabaseConnection.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                productDAO.insertProduct(connection, product);
+                auctionDAO.insertAuction(connection, auction);
+                connection.commit();
+            } catch (SQLException | RuntimeException exception) {
+                try {
+                    connection.rollback();
+                } catch (SQLException rollbackException) {
+                    exception.addSuppressed(rollbackException);
+                }
+                throw exception;
+            }
+        }
+
+        // The caller holds the AuctionSystem monitor from the uniqueness check through this update.
+        auctionSystem.addPersistedAuction(product, auction);
     }
 
     private AuctionCreationRequest readAuctionCreationRequest(HttpExchange exchange)
@@ -796,23 +886,22 @@ public class AuctionServer {
         }
     }
 
-    private static AuctionSystem createDemoSystem() {
-        AuctionSystem system = new AuctionSystem();
-        Seller seller = new Seller("API-SELLER", "API Demo Seller");
-        Product product = new Product("API-PRODUCT-1", "Demo camera",
-                "Example product held in memory by the API server.", "Good");
-        seller.listProduct(system, product);
-        seller.createAuction(system, "API-AUCTION-1", product,
-                LocalDateTime.now().plusDays(1), 10.00);
-        return system;
-    }
-
     public static void main(String[] args) throws IOException {
-        AuctionServer server = new AuctionServer(createDemoSystem(), new UserDAO(), DEFAULT_PORT);
+        UserDAO userDAO = new UserDAO();
+        ProductDAO productDAO = new ProductDAO();
+        AuctionDAO auctionDAO = new AuctionDAO(productDAO, userDAO, new BidDAO(userDAO));
+        AuctionServer server = new AuctionServer(new AuctionSystem(), userDAO,
+                productDAO, auctionDAO, DEFAULT_PORT);
+        try {
+            server.start();
+        } catch (IllegalStateException exception) {
+            System.err.println(exception.getMessage());
+            System.exit(1);
+            return;
+        }
         Runtime.getRuntime().addShutdownHook(new Thread(server::stop, "auction-server-shutdown"));
-        server.start();
         System.out.println("Auction API listening at http://localhost:" + server.getPort());
-        System.out.println("Example in-memory auction: API-AUCTION-1");
+        System.out.println("Persisted products and auctions loaded from MySQL.");
     }
 
     private static final class BidRequest {

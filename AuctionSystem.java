@@ -1,7 +1,9 @@
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 public class AuctionSystem {
     private List<User> users;
@@ -20,6 +22,65 @@ public class AuctionSystem {
 
     public synchronized void addProduct(Product product) {
         products.add(product);
+    }
+
+    /** Adds a product and auction after their database transaction has committed. */
+    public synchronized void addPersistedAuction(Product product, Auction auction) {
+        if (product == null || auction == null || auction.getProduct() == null
+                || !product.getProductId().equals(auction.getProduct().getProductId())) {
+            throw new IllegalArgumentException("Matching product and auction are required.");
+        }
+        ensureAuctionIdIsAvailable(auction.getAuctionId());
+        ensureProductIdIsAvailable(product.getProductId());
+        products.add(product);
+        auctions.add(auction);
+    }
+
+    /** Loads a complete database snapshot before the server starts accepting requests. */
+    public synchronized void loadPersistedData(List<Product> loadedProducts,
+            List<Auction> loadedAuctions) {
+        if (loadedProducts == null || loadedAuctions == null) {
+            throw new IllegalArgumentException("Persisted product and auction lists are required.");
+        }
+
+        Set<String> productIds = new HashSet<>();
+        for (Product product : products) productIds.add(product.getProductId());
+        for (Product product : loadedProducts) {
+            if (product == null || product.getProductId() == null
+                    || !productIds.add(product.getProductId())) {
+                throw new IllegalArgumentException("Persisted product IDs must be unique and valid.");
+            }
+        }
+
+        Set<String> auctionIds = new HashSet<>();
+        for (Auction auction : auctions) auctionIds.add(auction.getAuctionId());
+        for (Auction auction : loadedAuctions) {
+            if (auction == null || auction.getAuctionId() == null
+                    || !auctionIds.add(auction.getAuctionId())) {
+                throw new IllegalArgumentException("Persisted auction IDs must be unique and valid.");
+            }
+            if (auction.getProduct() == null
+                    || !productIds.contains(auction.getProduct().getProductId())) {
+                throw new IllegalArgumentException("Every persisted auction must reference a loaded product.");
+            }
+        }
+
+        products.addAll(loadedProducts);
+        auctions.addAll(loadedAuctions);
+    }
+
+    public synchronized boolean containsProductId(String productId) {
+        for (Product product : products) {
+            if (product.getProductId().equals(productId)) return true;
+        }
+        return false;
+    }
+
+    public synchronized boolean containsAuctionId(String auctionId) {
+        for (Auction auction : auctions) {
+            if (auction.getAuctionId().equals(auctionId)) return true;
+        }
+        return false;
     }
 
     public Auction createAuction(String auctionId, Product product, Seller seller) {
@@ -50,6 +111,15 @@ public class AuctionSystem {
             if (auctionId.equals(auction.getAuctionId())) {
                 throw new IllegalArgumentException("Auction ID already exists.");
             }
+        }
+    }
+
+    private void ensureProductIdIsAvailable(String productId) {
+        if (productId == null || productId.trim().isEmpty()) {
+            throw new IllegalArgumentException("Product ID is required.");
+        }
+        if (containsProductId(productId)) {
+            throw new IllegalArgumentException("Product ID already exists.");
         }
     }
 
