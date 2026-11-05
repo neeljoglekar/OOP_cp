@@ -1,4 +1,5 @@
 const API_BASE_URL = 'http://127.0.0.1:8080/api';
+const isLoginPage = document.body.dataset.page === 'login';
 
 const apiStatus = document.querySelector('#api-status');
 const auctionList = document.querySelector('#auction-list');
@@ -13,10 +14,11 @@ const detailsContent = document.querySelector('#details-content');
 const bidForm = document.querySelector('#bid-form');
 const bidAccessMessage = document.querySelector('#bid-access-message');
 const bidAccount = document.querySelector('#bid-account');
-const bidFields = bidForm.querySelector('.form-fields');
+const bidFields = bidForm?.querySelector('.form-fields');
 const bidAmountInput = document.querySelector('#bid-amount');
 const placeBidButton = document.querySelector('#place-bid-button');
 const bidMessage = document.querySelector('#bid-message');
+const bidRoleMessage = document.querySelector('#bid-role-message');
 const loginForm = document.querySelector('#login-form');
 const loginEmailInput = document.querySelector('#login-email');
 const loginPasswordInput = document.querySelector('#login-password');
@@ -35,6 +37,9 @@ const loggedInPanel = document.querySelector('#logged-in-panel');
 const loggedInName = document.querySelector('#logged-in-name');
 const loggedInRole = document.querySelector('#logged-in-role');
 const loggedInId = document.querySelector('#logged-in-id');
+const profileAvatar = document.querySelector('#profile-avatar');
+const profileMenuTrigger = document.querySelector('#profile-menu-trigger');
+const profileMenuDropdown = document.querySelector('#profile-menu-dropdown');
 const logoutButton = document.querySelector('#logout-button');
 const profilePanel = document.querySelector('#profile-panel');
 const profileMessage = document.querySelector('#profile-message');
@@ -86,10 +91,17 @@ let authMode = 'login';
 let profileLoaded = false;
 let profileEditorOpen = false;
 let auctionCreationInProgress = false;
+let sellerAuctionMessageTimer = null;
 let createAuctionFormOpen = false;
 let allAuctions = [];
 let roleDashboardRequestInProgress = false;
 
+if (isLoginPage) {
+    loginForm.addEventListener('submit', submitLogin);
+    registrationForm.addEventListener('submit', submitRegistration);
+    document.querySelector('#show-register-button').addEventListener('click', () => setAuthMode('register'));
+    document.querySelector('#show-login-button').addEventListener('click', () => setAuthMode('login'));
+} else {
 document.querySelector('#close-details').addEventListener('click', () => {
     if (bidRequestInProgress) {
         showBidMessage('Please wait for the current bid request to finish.', true);
@@ -102,13 +114,23 @@ document.querySelector('#close-details').addEventListener('click', () => {
 });
 
 bidForm.addEventListener('submit', submitBid);
-loginForm.addEventListener('submit', submitLogin);
-registrationForm.addEventListener('submit', submitRegistration);
 logoutButton.addEventListener('click', submitLogout);
-document.querySelector('#show-register-button').addEventListener('click', () => setAuthMode('register'));
-document.querySelector('#show-login-button').addEventListener('click', () => setAuthMode('login'));
 viewProfileButton.addEventListener('click', loadProfile);
 editProfileButton.addEventListener('click', openProfileEditor);
+profileMenuTrigger.addEventListener('click', () => {
+    const isOpen = !profileMenuDropdown.hidden;
+    profileMenuDropdown.hidden = isOpen;
+    profileMenuTrigger.setAttribute('aria-expanded', String(!isOpen));
+});
+document.addEventListener('click', (event) => {
+    if (!event.target.closest('.profile-menu')) closeProfileMenu();
+});
+document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') closeProfileMenu();
+});
+viewProfileButton.addEventListener('click', closeProfileMenu);
+editProfileButton.addEventListener('click', closeProfileMenu);
+logoutButton.addEventListener('click', closeProfileMenu);
 profileForm.addEventListener('submit', submitProfileUpdate);
 showCreateAuctionButton.addEventListener('click', () => {
     createAuctionFormOpen = !createAuctionFormOpen;
@@ -134,6 +156,13 @@ auctionSearchInput.addEventListener('input', renderFilteredAuctions);
 auctionStatusFilter.addEventListener('change', renderFilteredAuctions);
 auctionConditionFilter.addEventListener('change', renderFilteredAuctions);
 auctionSortSelect.addEventListener('change', renderFilteredAuctions);
+}
+
+function closeProfileMenu() {
+    if (!profileMenuDropdown || !profileMenuTrigger) return;
+    profileMenuDropdown.hidden = true;
+    profileMenuTrigger.setAttribute('aria-expanded', 'false');
+}
 
 function setApiStatus(connected) {
     apiStatus.classList.toggle('connected', connected);
@@ -192,6 +221,7 @@ async function fetchAuthenticatedJson(url, options = {}) {
         if (error && error.status === 401) {
             clearBrowserSession();
             showLoginMessage('Your login session has ended. Please log in again.');
+            if (!isLoginPage) window.location.replace('login.html');
         }
         throw error;
     }
@@ -202,8 +232,8 @@ function clearBrowserSession() {
     currentUser = null;
     profileLoaded = false;
     profileEditorOpen = false;
-    bidAmountInput.value = '';
-    clearBidMessage();
+    if (bidAmountInput) bidAmountInput.value = '';
+    if (bidMessage) clearBidMessage();
     updateAuthenticationUI();
 }
 
@@ -293,10 +323,13 @@ function isLoggedInSeller() {
 }
 
 function updateAuthenticationUI() {
+    if (isLoginPage) {
+        authOptions.hidden = false;
+        loginForm.hidden = authMode !== 'login';
+        registrationForm.hidden = authMode !== 'register';
+        return;
+    }
     const loggedIn = Boolean(currentUser);
-    authOptions.hidden = loggedIn;
-    loginForm.hidden = loggedIn || authMode !== 'login';
-    registrationForm.hidden = loggedIn || authMode !== 'register';
     loggedInPanel.hidden = !loggedIn;
     profilePanel.hidden = !loggedIn || !profileLoaded;
     profileForm.hidden = !loggedIn || !profileEditorOpen;
@@ -310,10 +343,14 @@ function updateAuthenticationUI() {
         loggedInName.textContent = displayValue(currentUser.name);
         loggedInRole.textContent = `Role: ${String(currentUser.role).toUpperCase()}`;
         loggedInId.textContent = `User ID: ${currentUser.userId}`;
+        const initial = String(currentUser.name || 'U').trim().charAt(0).toUpperCase() || 'U';
+        profileAvatar.textContent = initial;
     } else {
         loggedInName.textContent = '';
         loggedInRole.textContent = '';
         loggedInId.textContent = '';
+        profileAvatar.textContent = 'U';
+        closeProfileMenu();
         profileLoaded = false;
         profileEditorOpen = false;
         profileMessage.hidden = true;
@@ -332,13 +369,12 @@ function updateAuthenticationUI() {
 
     const canBid = isLoggedInBuyer();
     bidFields.hidden = !canBid;
-    if (!loggedIn) {
-        bidAccessMessage.textContent = 'Please log in as a buyer to place a bid.';
-    } else if (!canBid) {
-        bidAccessMessage.textContent = 'Only logged-in buyers can place bids.';
-    } else {
-        bidAccessMessage.textContent = 'Your logged-in Buyer account will be used for this bid.';
-    }
+    bidRoleMessage.hidden = !loggedIn || canBid;
+    bidRoleMessage.textContent = loggedIn && !canBid
+        ? 'Buyer account required to place bids.' : '';
+    bidAccessMessage.hidden = !loggedIn || !canBid;
+    bidAccessMessage.textContent = canBid
+        ? 'Your logged-in Buyer account will be used for this bid.' : '';
     bidAccount.textContent = canBid
         ? `Bidding as ${currentUser.name} · ID ${currentUser.userId}` : '';
     placeBidButton.disabled = !canBid || bidRequestInProgress;
@@ -396,11 +432,18 @@ async function submitAuctionCreation(event) {
             })
         });
         createAuctionForm.reset();
+        createAuctionFormOpen = false;
+        updateAuthenticationUI();
         showAccountMessage(sellerAuctionMessage,
             data.message
                 ? `${data.message} ${productName} (${auctionId}) ends ${formatDate(endTime)}; minimum increment ${formatAmount(minimumBidIncrement)}.`
                 : `Auction ${auctionId} created for ${productName}. Ends ${formatDate(endTime)}; minimum increment ${formatAmount(minimumBidIncrement)}.`,
             false);
+        if (sellerAuctionMessageTimer !== null) window.clearTimeout(sellerAuctionMessageTimer);
+        sellerAuctionMessageTimer = window.setTimeout(() => {
+            sellerAuctionMessage.hidden = true;
+            sellerAuctionMessageTimer = null;
+        }, 6000);
         const refreshed = await loadAuctions();
         await loadRoleDashboard();
         if (!refreshed) {
@@ -425,6 +468,7 @@ function setAuthMode(mode) {
 }
 
 function showLoginMessage(message, isError = true) {
+    if (!loginMessage) return;
     loginMessage.textContent = message;
     loginMessage.classList.toggle('error', isError);
     loginMessage.hidden = false;
@@ -459,9 +503,13 @@ async function submitLogin(event) {
         currentUser = data.user;
         profileLoaded = false;
         profileEditorOpen = false;
+        loginPasswordInput.value = '';
+        if (isLoginPage) {
+            window.location.replace('index.html');
+            return;
+        }
         updateAuthenticationUI();
         loadRoleDashboard();
-        loginPasswordInput.value = '';
         showLoginMessage('Login successful.', false);
     } catch (error) {
         loginPasswordInput.value = '';
@@ -533,7 +581,7 @@ async function submitLogout() {
     try {
         await fetchAuthenticatedJson(`${API_BASE_URL}/logout`, { method: 'POST' });
         clearBrowserSession();
-        showLoginMessage('You have logged out.', false);
+        window.location.replace('login.html');
     } catch (error) {
         showLoginMessage(friendlyApiError(error, 'logout'));
         if (error && typeof error.status !== 'number') setApiStatus(false);
@@ -573,6 +621,7 @@ async function loadProfile() {
         renderProfile(data.profile);
         profileEditorOpen = false;
         updateAuthenticationUI();
+        document.querySelector('#account-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch (error) {
         showAccountMessage(profileMessage, friendlyApiError(error, 'profile'), true);
         if (error && typeof error.status !== 'number') setApiStatus(false);
@@ -598,6 +647,7 @@ async function openProfileEditor() {
         profileEditPassword.value = '';
         profileEditorOpen = true;
         updateAuthenticationUI();
+        document.querySelector('#account-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch (error) {
         showAccountMessage(profileEditMessage, friendlyApiError(error, 'profile'), true);
         if (error && typeof error.status !== 'number') setApiStatus(false);
@@ -935,17 +985,28 @@ function renderBidHistory(bids) {
         return byMilliseconds || String(second.timestamp || '').localeCompare(
             String(first.timestamp || ''));
     });
-    const list = createElement('ol', 'bid-history-list');
+    const table = createElement('table', 'bid-history-table');
+    const header = document.createElement('thead');
+    const headerRow = document.createElement('tr');
+    ['Bidder', 'Bid amount', 'Date and time'].forEach((label) => {
+        headerRow.append(createElement('th', '', label));
+    });
+    header.append(headerRow);
+    const body = document.createElement('tbody');
     newestFirst.forEach((bid) => {
-        const entry = createElement('li', 'bid-history-entry');
-        const bidder = createElement('strong', '', displayValue(bid.buyerName, 'Unknown bidder'));
-        const amount = createElement('span', '', formatAmount(bid.amount));
+        const entry = document.createElement('tr');
+        const bidder = createElement('th', '', displayValue(bid.buyerName, 'Unknown bidder'));
+        bidder.scope = 'row';
+        const amount = createElement('td', '', formatAmount(bid.amount));
+        const timeCell = document.createElement('td');
         const timestamp = createElement('time', '', formatDate(bid.timestamp));
         if (typeof bid.timestamp === 'string') timestamp.dateTime = bid.timestamp;
-        entry.append(bidder, amount, timestamp);
-        list.append(entry);
+        timeCell.append(timestamp);
+        entry.append(bidder, amount, timeCell);
+        body.append(entry);
     });
-    section.append(list);
+    table.append(header, body);
+    section.append(table);
     return section;
 }
 
@@ -1106,7 +1167,7 @@ async function submitBid(event) {
     const amountText = bidAmountInput.value.trim();
     if (!isLoggedInBuyer()) {
         showBidMessage(currentUser
-            ? 'Only logged-in buyers can place bids.'
+            ? 'Buyer account required to place bids.'
             : 'Please log in as a buyer to place a bid.', true);
         return;
     }
@@ -1210,22 +1271,50 @@ function stopAuctionListPolling() {
     }
 }
 
-async function initializePage() {
+async function initializeLoginPage() {
     updateAuthenticationUI();
+    const connected = await checkApiHealth();
     if (getSessionToken()) {
         try {
             const data = await fetchAuthenticatedJson(`${API_BASE_URL}/profile`);
             if (data.profile && data.profile.userId && data.profile.role) {
-                currentUser = data.profile;
-                profileLoaded = false;
-                updateAuthenticationUI();
+                window.location.replace('index.html');
+                return;
             }
+            sessionStorage.removeItem('auctionSessionToken');
         } catch (error) {
             if (!error || typeof error.status !== 'number') {
                 showLoginMessage('Could not restore your login session. Check the API connection.', true);
             }
         }
     }
+    if (!connected) showLoginMessage('The auction service is unavailable. Try again when it is online.', true);
+}
+
+async function initializeDashboardPage() {
+    if (!getSessionToken()) {
+        window.location.replace('login.html');
+        return;
+    }
+    try {
+        const data = await fetchAuthenticatedJson(`${API_BASE_URL}/profile`);
+        if (data.profile && data.profile.userId && data.profile.role) {
+            currentUser = data.profile;
+            profileLoaded = false;
+        } else {
+            sessionStorage.removeItem('auctionSessionToken');
+            window.location.replace('login.html');
+            return;
+        }
+    } catch (error) {
+        if (error && typeof error.status === 'number') return;
+        showMessage('Could not verify your account because the auction service is unavailable.', 'error');
+        setApiStatus(false);
+        document.body.classList.remove('auth-pending');
+        return;
+    }
+    updateAuthenticationUI();
+    document.body.classList.remove('auth-pending');
     const connected = await checkApiHealth();
     const loaded = await loadAuctions();
     if (currentUser) await loadRoleDashboard();
@@ -1233,4 +1322,5 @@ async function initializePage() {
     startAuctionListPolling();
 }
 
-initializePage();
+if (isLoginPage) initializeLoginPage();
+else initializeDashboardPage();

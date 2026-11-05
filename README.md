@@ -67,6 +67,7 @@ The auction demonstration and compile were verified in this review. The user rep
 - [x] **Previously verified (user-reported)** — Logged-in users can view/update their own name and email and change their password. Profile operations derive the account ID from the active session; the ID is immutable. Duplicate email updates are rejected. The database scenarios were not rerun successfully in this review because connection variables were unavailable.
 - [x] **Tested (reported from Phase 1)** — JDBC-based MySQL connection setup. Connector/J is present and its driver is discoverable when the JAR is on the classpath; the connection was not rechecked during Phase 3 because the database environment variables were unset.
 - [x] **Tested (reported from Phase 1)** — MySQL user/account schema. The user reports that `database.sql` was run successfully in MySQL Workbench; it was not reverified during this phase.
+- [ ] **Implemented; database test skipped** — JDBC DAO classes support direct insert/retrieval of products, auctions, and bids, plus auction closing and bid-history/highest-bid retrieval. They are not yet connected to `AuctionSystem` or `AuctionServer`; the integration test requires a configured MySQL connection.
 
 Status meanings: **Planned** = accepted for future implementation; **In Progress** = currently being implemented; **Implemented** = coded but not verified; **Tested** = implemented and verified; **Not Planned** = explicitly excluded. Do not describe unverified behavior as tested.
 
@@ -165,9 +166,9 @@ The user record identifies the roles `BUYER`, `SELLER`, and `ADMIN`. Current rol
 
 ## 9. Data Storage and Database Design
 
-MySQL has been selected as the database, and JDBC has been selected for Java database connectivity. File handling is not the selected persistence approach. The user reports the database setup and Phases 1–6 were verified. A live connection was unavailable during this final review because the database environment variables were absent.
+MySQL has been selected as the database, and JDBC has been selected for Java database connectivity. File handling is not the selected persistence approach. The user reports that Phase 1's schema was created and verified in MySQL Workbench. This Phase 2 run could not independently reconnect because the database environment variables are not configured here.
 
-Initial database work will focus on user/account information. Auction, product, and bid persistence may be added later as the project is extended. The SQL setup script is [database.sql](database.sql); its successful execution in MySQL Workbench is user-reported and was not reverified during this phase.
+The additive SQL setup script is [database.sql](database.sql). It creates the product, auction, and bid table definitions while preserving the existing `users` table and all account rows. The script uses `CREATE DATABASE IF NOT EXISTS` and `CREATE TABLE IF NOT EXISTS`; it contains no drop or delete statements. Phase 1 table creation is user-reported as verified in MySQL Workbench; this session did not rerun the script because the MySQL client and database environment variables are unavailable.
 
 The initial `auction_system` database schema defines a `users` table:
 
@@ -177,7 +178,22 @@ The initial `auction_system` database schema defines a `users` table:
 - `password_hash VARCHAR(255) NOT NULL`
 - `role VARCHAR(20) NOT NULL` — intended values: `BUYER`, `SELLER`, `ADMIN`.
 
-The supplied initial column types and constraints are captured in `database.sql`. The current schema has one account table; auction, product, and bid persistence have not been added. Product details and auction end times currently live in in-memory objects, so no product table, auction table, or DAO was added in this phase. Further schema details remain **TBD**.
+The schema now defines these relationships:
+
+- `products` stores `product_id`, `name`, `description`, and `condition`.
+- `auctions` stores its `auction_id`, referenced `product_id`, seller's `users.user_id`, optional `end_time`, positive `minimum_bid_increment`, and manual `closed` flag. Effective status is derived from the flag and end time.
+- `bids` stores an auto-generated `bid_id`, referenced auction and buyer IDs, `bid_amount`, and `bid_timestamp`.
+- `auctions.seller_id` and `bids.buyer_id` reference `users.user_id`. These foreign keys ensure the referenced accounts exist; role authorization remains an application responsibility.
+- `bids.auction_id` references `auctions.auction_id`, and `auctions.product_id` references `products.product_id`. Deletes are restricted to preserve referenced records.
+- The existing `users` table must use InnoDB for these foreign keys. MySQL 8 normally defaults to InnoDB, but this script deliberately does not convert or otherwise alter an already-existing `users` table.
+- Monetary columns use `DECIMAL(19,4)`. MySQL 8.0.16 or newer is required for the script's positive-value `CHECK` constraints to be enforced.
+- No highest-bid, winner, or derived status value is duplicated in the schema. Highest bid and winner are derived from bids and auction state.
+
+The SQL IDs for products and auctions are `VARCHAR(100)` because their Java fields are `String`; the Java classes currently do not limit their length, so future persistence code must validate the 100-character database limit or revise the schema. The existing `users.user_id` remains `INT`; although `User.userId` is represented as a `String`, `UserDAO` registers and looks up numeric IDs using `int`, so account foreign keys use the existing signed `INT` type.
+
+`Auction.endTime` is represented by `LocalDateTime`. Older Java constructors use `LocalDateTime.MAX` to mean no expiry, which a MySQL `DATETIME` cannot represent; `AuctionDAO` maps that sentinel to SQL `NULL` and restores it when loading an auction. `Bid.timestamp` is a Java `LocalDateTime`; `DATETIME(6)` stores microseconds, so DAOs truncate values to microsecond precision before insertion. Java monetary values currently use `double`; the DAOs convert to `BigDecimal`, reject non-finite values, values with more than four fractional digits, and values outside `DECIMAL(19,4)`, and check that database values can be represented by the Java model without decimal precision loss.
+
+`Product` has no seller/owner member, so `products` has no owner column. Seller ownership is stored on `Auction`, matching `Auction.seller`. The model's `closed` flag is persisted, while status is computed. The winner and highest bid remain derived. `bids.bid_id` is an auto-generated database row identity; the current `Bid` class has no bid ID because code addresses bids through an auction's bid list. `Payable` currently represents a payment action but the model has no payment record/state, so there is no payment table. The DAO layer is now implemented for direct product, auction, and bid persistence, but these DAOs have not been integrated into `AuctionSystem` or `AuctionServer`; their normal auction workflows continue to keep products, auctions, and bids in memory.
 
 ```text
 Java application
@@ -197,7 +213,9 @@ Connection details, credentials, URL, and configuration method are implementatio
 
 `DatabaseConnection.java` establishes a JDBC connection; it does not contain registration or login SQL. Its connection URL, username, and password are read from environment variables and are not hardcoded in the source. `DatabaseConnectionTest.java` checks the connection separately from the auction demo and now exits with a failure status when it cannot connect.
 
-MySQL Connector/J is present at `lib/mysql-connector-j-26.7.0/mysql-connector-j-26.7.0.jar`. The JAR contains `com.mysql.cj.jdbc.Driver` and its JDBC service-provider entry. The current execution environment has no `AUCTION_DB_URL`, `AUCTION_DB_USERNAME`, or `AUCTION_DB_PASSWORD` variables, so database-backed tests stop at connection setup. No Maven/Gradle setup is used. A simple DAO-style approach keeps SQL/database operations separate from entity classes; `UserDAO.java` handles account SQL.
+MySQL Connector/J is present at `lib/mysql-connector-j-26.7.0/mysql-connector-j-26.7.0.jar`. The JAR contains `com.mysql.cj.jdbc.Driver` and its JDBC service-provider entry. The current execution environment has no `AUCTION_DB_URL`, `AUCTION_DB_USERNAME`, or `AUCTION_DB_PASSWORD` variables, so database-backed tests are skipped. No Maven/Gradle setup is used. `UserDAO.java` handles account SQL; `ProductDAO.java`, `AuctionDAO.java`, and `BidDAO.java` handle auction-data SQL. Their connection-taking overloads use caller-managed connections without closing or committing them, so a later caller can group multiple DAO calls in a transaction.
+
+`AuctionPersistenceDAOTest.java` is the database integration test for these DAOs. It uses unique test IDs and removes only its own rows in foreign-key order. It covers round trips, generated bid IDs, timestamp order, highest bids, missing lookups, duplicate IDs, invalid decimal values, and foreign-key failures. It was compiled but skipped at runtime in this environment because the three database variables are unset.
 
 ## 12. User Roles
 
@@ -222,7 +240,7 @@ These roles are represented by the existing user class hierarchy. Account regist
 
 ## 14. Final Java File Structure
 
-These 14 files are the finalized initial Java project structure. More files may be added later if database functionality requires them.
+These 14 files are the finalized initial Java project structure. Database support and test files added later are documented separately below.
 
 ```text
 OnlineAuctionSimulator/
@@ -243,6 +261,8 @@ OnlineAuctionSimulator/
 └── Main.java
 ```
 
+Database support files added after the initial structure: `DatabaseConnection.java`, `UserDAO.java`, `ProductDAO.java`, `AuctionDAO.java`, and `BidDAO.java`. The DAO integration check is `AuctionPersistenceDAOTest.java`.
+
 ## 15. Current Project Status
 
 - **Requirements/design:** Established.
@@ -255,7 +275,8 @@ OnlineAuctionSimulator/
 - **Concurrent bidding:** `Auction.placeBid` and related auction state operations are synchronized. Concurrent bids are validated and recorded serially per auction; their order depends on thread scheduling, while each accepted bid must still satisfy the existing rules against the latest accepted bid.
 - **REST API:** `AuctionServer.java` serves the existing in-memory auction system over HTTP. It uses the JDK `HttpServer`; `Auction.java` remains responsible for bid validation, expiry, increment rules, synchronization, and bid recording.
 - **Custom exceptions:** `InvalidBidException`, `AuctionClosedException`, `AuctionNotFoundException`, `InsufficientBidException`, `UserNotFoundException`, and `UnauthorizedActionException` are implemented. Bid/auction exceptions are covered by the auction demonstrations and focused tests. The authorization test passed locally; the database-backed user-lookup test compiled but could not run because database environment variables were unavailable.
-- **Database technology:** MySQL selected; setup started.
+- **Database technology:** MySQL selected. The user reports that Phase 1 created and verified the `products`, `auctions`, and `bids` tables in Workbench; this session could not independently reconnect.
+- **Product/Auction/Bid DAO layer:** `ProductDAO`, `AuctionDAO`, and `BidDAO` are implemented and all Java sources compile. Database integration tests were skipped because the `AUCTION_DB_*` environment variables are unavailable. DAO persistence is not yet wired into `AuctionSystem` or `AuctionServer`.
 - **Database connectivity technology:** JDBC selected; `DatabaseConnection.java` created.
 - **User registration:** Reported verified complete from Phase 2.
 - **Login:** Reported fully verified and complete in Phase 3. `UserDAO.login` uses a prepared lookup, verifies the existing PBKDF2-HMAC-SHA256 format, returns the mapped `User` subclass, and records it in `UserSession`.
@@ -282,8 +303,9 @@ OnlineAuctionSimulator/
 - **Synchronization verification:** `SynchronizationTest` starts five concurrent bid attempts and checks that the stored bid sequence respects the minimum increment, the highest bid matches accepted history, and the closed-auction winner matches that bid. Database-backed account tests remain dependent on the three `AUCTION_DB_*` environment variables.
 - **Final review verification (2026-09-29):** All Java sources compiled with JDK 25 and Connector/J. `MinimumBidIncrementTest`, `BidTimestampTest`, `UnauthorizedActionExceptionTest`, `SynchronizationTest`, and `Main` passed. `Main` also handled an invalid top-level menu entry and then exited normally. Database-backed tests were not run because the three `AUCTION_DB_*` variables were unavailable.
 - **REST API verification (2026-09-29):** All Java sources compiled with JDK 25 and Connector/J, including the `jdk.httpserver` module. `RestApiTest` passed health, CORS preflight, auction list/detail, missing-auction 404, valid bid, shared state across two HTTP clients, invalid and insufficient bid responses, non-buyer authorization, closed/expired auction responses, and winner data. `Main` and the existing in-memory auction tests passed. Database-backed regression tests were not run because the three `AUCTION_DB_*` variables were unavailable.
-- **User database schema:** Initial fields, types, and stated constraints are defined in `database.sql`; broader schema details remain undecided.
-- **Other undecided details:** Auction duration/timer, detailed tie-handling rules, registration validation, email-format validation, and exact database schema.
+- **Auction persistence schema:** Product, auction, and bid table definitions, relationships, indexes, and constraints are recorded in `database.sql`; table creation is user-reported as verified in MySQL Workbench.
+- **Schema/model alignment items:** Product and auction Java IDs are `String`; the DAOs validate the SQL 100-character limit. User IDs are Java strings containing numeric values persisted as signed `INT`. `LocalDateTime.MAX` maps to SQL `NULL` for auctions without expiry. Java monetary values use `double` while SQL uses `DECIMAL(19,4)`; DAOs reject values outside its scale/range.
+- **Other undecided details:** Auction duration/timer, detailed tie-handling rules, registration validation, and email-format validation. Persistence DAO behavior and applying the new schema to the live database remain pending.
 
 ## 16. Development Rules
 
@@ -304,6 +326,8 @@ OnlineAuctionSimulator/
 
 | Date | Change | Files affected | Status |
 |---|---|---|---|
+| 2026-11-06 | Added the JDBC DAO layer for direct product, auction, and bid persistence. Added caller-managed `Connection` overloads, database reconstruction of related model objects, and an integration test. Added only the model support needed to restore persisted bid timestamps and auction state. DAOs are not wired into `AuctionSystem` or `AuctionServer`; no schema changes were made in this phase. | `ProductDAO.java`; `AuctionDAO.java`; `BidDAO.java`; `AuctionPersistenceDAOTest.java`; `UserDAO.java`; `Auction.java`; `Bid.java`; `README.md` | All Java sources compiled with JDK 25. `MinimumBidIncrementTest`, `BidTimestampTest`, `UnauthorizedActionExceptionTest`, `SynchronizationTest`, REST/authentication/account/dashboard tests available without DB access, and `Main` passed. `AuctionPersistenceDAOTest` was skipped because `AUCTION_DB_URL`, `AUCTION_DB_USERNAME`, and `AUCTION_DB_PASSWORD` were unset; database persistence was not verified in this run. |
+| 2026-11-06 | Added idempotent InnoDB definitions for `products`, `auctions`, and `bids`, with foreign keys, indexes, decimal monetary columns, and microsecond timestamps. Preserved the existing `users` table and documented Java-to-SQL mapping limits. | `database.sql`; `README.md` | Static review of MySQL 8.0 syntax, ID/FK types, relationships, and preservation safety completed. Script was not run: the MySQL client and `AUCTION_DB_*` variables are unavailable. No Java or live database changes were made. |
 | 2026-11-05 | Added selected-auction bid history sorted newest first; token-authenticated `GET /api/my-auctions` and `GET /api/my-bids` views with ownership and role checks; Seller/Buyer dashboard panels; and product-name search, status/condition filters, and bid/end-time sorting that persist through automatic list refreshes. No database schema, auction rules, or authentication/session implementation changed. | `AuctionServer.java`; `AuctionDashboardTest.java`; `frontend/index.html`; `frontend/css/style.css`; `frontend/js/app.js`; `README.md` | All Java sources compiled with JDK 25. `AuctionDashboardTest`, REST/authentication/auction regression tests, bid/timestamp/authorization/synchronization tests, and `Main` passed. JavaScript syntax and static HTML element references passed. Database-backed checks were skipped because `AUCTION_DB_*` variables were unavailable; browser interaction was not verified. |
 | 2026-09-29 | Added seller-only in-memory auction creation through `POST /api/auctions`, requiring the active `UserSession` Seller and never accepting seller identity from request data. Added backend request validation/duplicate auction ID handling, a role-gated seller form that refreshes the auction list, and focused REST coverage. No database schema, account logic, or bid rules changed. | `AuctionServer.java`; `AuctionSystem.java`; `SellerAuctionCreationTest.java`; `frontend/index.html`; `frontend/css/style.css`; `frontend/js/app.js`; `README.md` | All Java sources compiled with JDK 25; new seller-creation HTTP test and in-memory REST/auction regression tests passed; database-dependent `AdminRoleTest` portion unavailable because `AUCTION_DB_*` variables were unset; frontend syntax and static references passed; browser UI not verified |
 | 2026-09-29 | Added REST registration and current-session profile GET/PUT endpoints using existing `UserDAO`/`UserSession`; public registration allows only Buyer/Seller, profile updates do not accept user ID or role, and account responses exclude password data. Added frontend registration, backend-loaded profile view/edit, optional password change, and REST boundary/database-gated tests. Database schema and existing auction/account classes were not changed. | `AuctionServer.java`; `RestAccountManagementTest.java`; `frontend/index.html`; `frontend/css/style.css`; `frontend/js/app.js`; `README.md` | All Java sources compiled; REST boundary checks, JavaScript syntax, static references, and non-database regression tests passed; DB-backed account cases and browser flow not verified because DB variables/browser were unavailable |

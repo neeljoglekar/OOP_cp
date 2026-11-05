@@ -3,106 +3,73 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="#f6f5f1">
+    <meta name="theme-color" content="#10243f">
+    <meta name="description" content="Browse live auctions, follow bids, and discover products in the Online Auction Simulator.">
     <title>Online Auction Simulator</title>
     <link rel="stylesheet" href="css/style.css">
     <script src="js/app.js" defer></script>
 </head>
-<body>
+<body data-page="dashboard" class="auth-pending">
     <header class="site-header">
-        <a class="brand" href="#top" aria-label="Online Auction Simulator home">
-            <span class="brand-mark" aria-hidden="true">OA</span>
-            <span>Online Auction Simulator</span>
-        </a>
-        <nav aria-label="Main navigation">
-            <a class="nav-link" href="#auctions">Auctions</a>
-            <span id="api-status" class="api-status" role="status" aria-live="polite">
-                <span class="status-dot" aria-hidden="true"></span>
-                Checking API…
-            </span>
-        </nav>
+        <div class="header-inner">
+            <a class="brand" href="#top" aria-label="Online Auction Simulator home">
+                <span class="brand-mark" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <path d="m14.2 4.3 5.5 5.5M10.7 7.8l5.5 5.5M8.3 10.2l5.5 5.5M4.8 13.7l5.5 5.5M3 21h18M12.5 3l8.5 8.5-3.2 3.2L9.3 6.2 12.5 3Z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </span>
+                <span class="brand-name">Online Auction Simulator</span>
+            </a>
+            <nav aria-label="Main navigation">
+                <a class="nav-link" href="#auctions">Auctions</a>
+                <a class="nav-link" href="#account-section">My account</a>
+                <span id="api-status" class="api-status" role="status" aria-live="polite">
+                    <span class="status-dot" aria-hidden="true"></span>
+                    Checking API…
+                </span>
+            </nav>
+            <div id="logged-in-panel" class="profile-menu header-account" hidden>
+                <button id="profile-menu-trigger" class="profile-menu-trigger" type="button"
+                        aria-expanded="false" aria-controls="profile-menu-dropdown">
+                    <span id="profile-avatar" class="profile-avatar" aria-hidden="true">U</span>
+                    <span class="profile-menu-identity">
+                        <strong id="logged-in-name"></strong>
+                        <span id="logged-in-role"></span>
+                    </span>
+                    <span class="profile-menu-chevron" aria-hidden="true">⌄</span>
+                </button>
+                <div id="profile-menu-dropdown" class="profile-menu-dropdown" hidden>
+                    <div class="profile-menu-summary">
+                        <span class="eyebrow">Signed in account</span>
+                        <span id="logged-in-id"></span>
+                    </div>
+                    <button id="view-profile-button" class="profile-menu-item" type="button">View profile</button>
+                    <button id="edit-profile-button" class="profile-menu-item" type="button">Edit profile</button>
+                    <div class="profile-menu-divider"></div>
+                    <button id="logout-button" class="profile-menu-item logout-menu-item" type="button">Log out</button>
+                </div>
+            </div>
+        </div>
     </header>
 
     <main id="top">
         <section class="hero" aria-labelledby="page-title">
             <div class="hero-copy">
-                <p class="eyebrow">A simple place to discover interesting finds</p>
-                <h1 id="page-title">Online Auction Simulator</h1>
-                <p class="hero-description">Browse live auctions and view current bidding information.</p>
-                <a class="primary-link" href="#auctions">Browse auctions <span aria-hidden="true">↓</span></a>
+                <p class="eyebrow">Curated finds. Competitive bidding.</p>
+                <h1 id="page-title">Find something<br>worth bidding on.</h1>
+                <p class="hero-description">Explore current listings, follow every bid, and see auction updates as they happen.</p>
+                <a class="primary-link" href="#auctions">Explore auctions <span aria-hidden="true">→</span></a>
             </div>
             <div class="hero-note" aria-label="Auction data source">
-                <span class="note-icon" aria-hidden="true">↗</span>
-                <p>Live information<br><strong>from the auction API</strong></p>
+                <span class="note-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8m0-12.8L5.6 18.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+                </span>
+                <p>Marketplace status<br><strong>Live auction listings</strong></p>
             </div>
         </section>
 
-        <section class="account-section" aria-labelledby="account-heading">
-            <div class="account-heading">
-                <div>
-                    <p class="eyebrow">Account</p>
-                    <h2 id="account-heading">Sign in to bid</h2>
-                </div>
-            </div>
-            <div id="auth-options" class="auth-options">
-                <button id="show-register-button" class="text-button" type="button">Create an account</button>
-            </div>
-            <form id="login-form" class="login-form">
-                <label>
-                    <span>Email</span>
-                    <input id="login-email" name="email" type="email" autocomplete="username" required>
-                </label>
-                <label>
-                    <span>Password</span>
-                    <input id="login-password" name="password" type="password"
-                           autocomplete="current-password" required>
-                </label>
-                <button id="login-button" class="submit-button" type="submit">Log in</button>
-            </form>
-            <form id="registration-form" class="account-form" hidden>
-                <label>
-                    <span>User ID</span>
-                    <input id="registration-user-id" name="userId" type="number" min="1" step="1" required>
-                </label>
-                <label>
-                    <span>Name</span>
-                    <input id="registration-name" name="name" type="text" autocomplete="name" required>
-                </label>
-                <label>
-                    <span>Email</span>
-                    <input id="registration-email" name="email" type="email" autocomplete="email" required>
-                </label>
-                <label>
-                    <span>Password</span>
-                    <input id="registration-password" name="password" type="password" autocomplete="new-password" required>
-                </label>
-                <label>
-                    <span>Role</span>
-                    <select id="registration-role" name="role" required>
-                        <option value="BUYER">Buyer</option>
-                        <option value="SELLER">Seller</option>
-                    </select>
-                </label>
-                <div class="account-form-actions">
-                    <button id="register-button" class="submit-button" type="submit">Register</button>
-                    <button id="show-login-button" class="text-button" type="button">Back to login</button>
-                </div>
-            </form>
-            <div id="registration-message" class="account-message" role="status" aria-live="polite" hidden></div>
-            <div id="login-message" class="account-message" role="status" aria-live="polite" hidden></div>
-            <div id="logged-in-panel" class="logged-in-panel" hidden>
-                <div>
-                    <p class="eyebrow">Logged in as</p>
-                    <strong id="logged-in-name"></strong>
-                    <span id="logged-in-role"></span>
-                    <span id="logged-in-id"></span>
-                </div>
-                <div class="logged-in-actions">
-                    <button id="view-profile-button" class="button" type="button">Profile</button>
-                    <button id="edit-profile-button" class="button" type="button">Edit profile</button>
-                    <button id="logout-button" class="button" type="button">Log out</button>
-                </div>
-            </div>
+        <section id="account-section" class="account-section" aria-labelledby="account-heading">
+            <h2 id="account-heading" class="visually-hidden">My account</h2>
             <section id="profile-panel" class="profile-panel" aria-labelledby="profile-heading" hidden>
                 <h3 id="profile-heading">My profile</h3>
                 <dl class="profile-details">
@@ -201,9 +168,9 @@
                             Cancel
                         </button>
                     </div>
-                    <div id="seller-auction-message" class="account-message"
-                         role="status" aria-live="polite" hidden></div>
                 </form>
+                <div id="seller-auction-message" class="account-message"
+                     role="status" aria-live="polite" hidden></div>
             </section>
         </section>
 
@@ -268,7 +235,7 @@
                         <p class="eyebrow">Take part in this auction</p>
                         <h3>Place a bid</h3>
                     </div>
-                    <span class="demo-label">Development/demo input</span>
+                    <span id="bid-role-message" class="demo-label" hidden></span>
                 </div>
                 <p id="bid-access-message" class="form-note"></p>
                 <div class="form-fields">

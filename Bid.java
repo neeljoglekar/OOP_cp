@@ -1,4 +1,5 @@
 import java.time.LocalDateTime;
+import java.util.Objects;
 
 public class Bid {
     private Buyer bidder;
@@ -6,9 +7,14 @@ public class Bid {
     private final LocalDateTime timestamp;
 
     public Bid(Buyer bidder, double amount) {
+        this(bidder, amount, LocalDateTime.now());
+    }
+
+    /** Reconstructs a persisted bid while preserving its stored timestamp. */
+    public Bid(Buyer bidder, double amount, LocalDateTime timestamp) {
         this.bidder = bidder;
         this.amount = amount;
-        this.timestamp = LocalDateTime.now();
+        this.timestamp = Objects.requireNonNull(timestamp, "Bid timestamp is required.");
     }
 
     public Buyer getBidder() {

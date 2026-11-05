@@ -93,13 +93,23 @@ public class UserDAO {
 
     /** Finds a user by stable ID without retrieving password data. */
     public User findUserById(int userId) throws SQLException, UserNotFoundException {
+        try (Connection connection = DatabaseConnection.getConnection()) {
+            return findUserById(connection, userId);
+        }
+    }
+
+    /** Finds a user using a caller-managed connection without closing or committing it. */
+    public User findUserById(Connection connection, int userId)
+            throws SQLException, UserNotFoundException {
         if (userId <= 0) {
             throw new IllegalArgumentException("User ID must be a positive integer.");
         }
+        if (connection == null) {
+            throw new IllegalArgumentException("Database connection is required.");
+        }
 
         String sql = "SELECT user_id, name, email, role FROM users WHERE user_id = ?";
-        try (Connection connection = DatabaseConnection.getConnection();
-                PreparedStatement statement = connection.prepareStatement(sql)) {
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setInt(1, userId);
             try (ResultSet resultSet = statement.executeQuery()) {
                 if (!resultSet.next()) {

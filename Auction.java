@@ -42,6 +42,15 @@ public class Auction implements Biddable {
         this.bids = new ArrayList<>();
     }
 
+    /** Restores persisted auction state; intended for DAO reconstruction. */
+    Auction(String auctionId, Product product, Seller seller, LocalDateTime endTime,
+            double minimumBidIncrement, boolean manuallyClosed, List<Bid> existingBids) {
+        this(auctionId, product, seller, endTime, minimumBidIncrement);
+        this.closed = manuallyClosed;
+        this.bids = new ArrayList<>(Objects.requireNonNull(existingBids,
+                "Existing bids are required."));
+    }
+
     public String getAuctionId() {
         return auctionId;
     }
