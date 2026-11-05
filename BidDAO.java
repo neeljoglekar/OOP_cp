@@ -78,11 +78,25 @@ public class BidDAO {
     public List<Bid> getBidsForAuction(Connection connection, String auctionId,
             Map<Integer, Buyer> buyers)
             throws SQLException, UserNotFoundException {
+        return getBidsForAuction(connection, auctionId, buyers, false);
+    }
+
+    /** Reads and locks an auction's current bid rows after its auction row has been locked. */
+    public List<Bid> getBidsForAuctionForUpdate(Connection connection, String auctionId,
+            Map<Integer, Buyer> buyers)
+            throws SQLException, UserNotFoundException {
+        return getBidsForAuction(connection, auctionId, buyers, true);
+    }
+
+    private List<Bid> getBidsForAuction(Connection connection, String auctionId,
+            Map<Integer, Buyer> buyers, boolean forUpdate)
+            throws SQLException, UserNotFoundException {
         requireConnection(connection);
         requireId(auctionId, "Auction ID");
         if (buyers == null) throw new IllegalArgumentException("Buyer cache is required.");
         String sql = SELECT_COLUMNS
-                + "WHERE auction_id = ? ORDER BY bid_timestamp DESC, bid_id DESC";
+                + "WHERE auction_id = ? ORDER BY bid_timestamp DESC, bid_id DESC"
+                + (forUpdate ? " FOR UPDATE" : "");
         List<Bid> bids = new ArrayList<>();
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, auctionId);

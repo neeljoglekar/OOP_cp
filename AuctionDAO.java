@@ -75,16 +75,29 @@ public class AuctionDAO {
     /** Returns null if there is no matching auction. */
     public Auction findAuctionById(Connection connection, String auctionId)
             throws SQLException, UserNotFoundException {
+        return findAuctionById(connection, auctionId, false);
+    }
+
+    /** Locks the auction row and reads its bid rows for a caller-managed transaction. */
+    public Auction findAuctionByIdForUpdate(Connection connection, String auctionId)
+            throws SQLException, UserNotFoundException {
+        return findAuctionById(connection, auctionId, true);
+    }
+
+    private Auction findAuctionById(Connection connection, String auctionId, boolean forUpdate)
+            throws SQLException, UserNotFoundException {
         requireConnection(connection);
         requireId(auctionId, "Auction ID");
-        String sql = SELECT_COLUMNS + "WHERE auction_id = ?";
+        String sql = SELECT_COLUMNS + "WHERE auction_id = ?" + (forUpdate ? " FOR UPDATE" : "");
         Map<String, Product> products = new HashMap<>();
         Map<Integer, Seller> sellers = new HashMap<>();
         Map<Integer, Buyer> buyers = new HashMap<>();
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, auctionId);
             try (ResultSet results = statement.executeQuery()) {
-                return results.next() ? readAuction(connection, results, products, sellers, buyers) : null;
+                return results.next()
+                        ? readAuction(connection, results, products, sellers, buyers, forUpdate)
+                        : null;
             }
         }
     }
@@ -106,7 +119,7 @@ public class AuctionDAO {
         try (PreparedStatement statement = connection.prepareStatement(sql);
                 ResultSet results = statement.executeQuery()) {
             while (results.next()) {
-                auctions.add(readAuction(connection, results, products, sellers, buyers));
+                auctions.add(readAuction(connection, results, products, sellers, buyers, false));
             }
         }
         return auctions;
@@ -132,7 +145,7 @@ public class AuctionDAO {
             statement.setInt(1, numericSellerId);
             try (ResultSet results = statement.executeQuery()) {
                 while (results.next()) {
-                    auctions.add(readAuction(connection, results, products, sellers, buyers));
+                    auctions.add(readAuction(connection, results, products, sellers, buyers, false));
                 }
             }
         }
@@ -159,7 +172,7 @@ public class AuctionDAO {
 
     private Auction readAuction(Connection connection, ResultSet results,
             Map<String, Product> products, Map<Integer, Seller> sellers,
-            Map<Integer, Buyer> buyers)
+            Map<Integer, Buyer> buyers, boolean lockBids)
             throws SQLException, UserNotFoundException {
         String auctionId = results.getString("auction_id");
         String productId = results.getString("product_id");
@@ -191,7 +204,9 @@ public class AuctionDAO {
                 "Minimum bid increment");
         boolean manuallyClosed = results.getBoolean("closed");
 
-        List<Bid> chronologicalBids = bidDAO.getBidsForAuction(connection, auctionId, buyers);
+        List<Bid> chronologicalBids = lockBids
+                ? bidDAO.getBidsForAuctionForUpdate(connection, auctionId, buyers)
+                : bidDAO.getBidsForAuction(connection, auctionId, buyers);
         Collections.reverse(chronologicalBids);
         return new Auction(auctionId, product, seller, endTime, increment,
                 manuallyClosed, chronologicalBids);

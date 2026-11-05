@@ -81,7 +81,7 @@ public class AuctionPersistenceIntegrationTest {
             check(auctionDAO.closeAuction(seedAuctionId), "Could not seed the closed auction state.");
 
             AuctionSystem system = new AuctionSystem();
-            server = new AuctionServer(system, userDAO, productDAO, auctionDAO, 0);
+            server = new AuctionServer(system, userDAO, productDAO, auctionDAO, bidDAO, 0);
             URI base = URI.create("http://127.0.0.1:" + server.getPort());
             verifyNotAcceptingBeforeStart(base);
             server.start();

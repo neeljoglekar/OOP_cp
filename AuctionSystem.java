@@ -69,6 +69,28 @@ public class AuctionSystem {
         auctions.addAll(loadedAuctions);
     }
 
+    /** Replaces an auction with its committed database snapshot, or adds it if newly visible. */
+    public synchronized void replacePersistedAuction(Auction persistedAuction) {
+        if (persistedAuction == null || persistedAuction.getAuctionId() == null
+                || persistedAuction.getProduct() == null) {
+            throw new IllegalArgumentException("A persisted auction with a product is required.");
+        }
+        String auctionId = persistedAuction.getAuctionId();
+        for (int index = 0; index < auctions.size(); index++) {
+            if (auctionId.equals(auctions.get(index).getAuctionId())) {
+                if (!containsProductId(persistedAuction.getProduct().getProductId())) {
+                    products.add(persistedAuction.getProduct());
+                }
+                auctions.set(index, persistedAuction);
+                return;
+            }
+        }
+        if (!containsProductId(persistedAuction.getProduct().getProductId())) {
+            products.add(persistedAuction.getProduct());
+        }
+        auctions.add(persistedAuction);
+    }
+
     public synchronized boolean containsProductId(String productId) {
         for (Product product : products) {
             if (product.getProductId().equals(productId)) return true;

@@ -48,8 +48,10 @@ public class AuctionServer {
     private final UserDAO userDAO;
     private final ProductDAO productDAO;
     private final AuctionDAO auctionDAO;
+    private final BidDAO bidDAO;
     private final boolean persistentAuctionStorage;
     private final RestSessionStore sessionStore = new RestSessionStore();
+    private final Map<String, Object> auctionBidLocks = new ConcurrentHashMap<>();
     private final HttpServer server;
     private final ExecutorService requestExecutor;
     private boolean auctionsLoaded;
@@ -57,28 +59,38 @@ public class AuctionServer {
 
     public AuctionServer(AuctionSystem auctionSystem, UserDAO userDAO, int port)
             throws IOException {
-        this(auctionSystem, userDAO, null, null, port, false);
+        this(auctionSystem, userDAO, null, null, null, port, false);
     }
 
     /** Creates a server that loads and persists auctions through the supplied DAOs. */
     public AuctionServer(AuctionSystem auctionSystem, UserDAO userDAO,
             ProductDAO productDAO, AuctionDAO auctionDAO, int port) throws IOException {
-        this(auctionSystem, userDAO, productDAO, auctionDAO, port, true);
+        this(auctionSystem, userDAO, productDAO, auctionDAO,
+                new BidDAO(userDAO), port, true);
+    }
+
+    /** Creates a persistent server with the DAO instances used by its transaction workflows. */
+    public AuctionServer(AuctionSystem auctionSystem, UserDAO userDAO,
+            ProductDAO productDAO, AuctionDAO auctionDAO, BidDAO bidDAO, int port)
+            throws IOException {
+        this(auctionSystem, userDAO, productDAO, auctionDAO, bidDAO, port, true);
     }
 
     private AuctionServer(AuctionSystem auctionSystem, UserDAO userDAO,
-            ProductDAO productDAO, AuctionDAO auctionDAO, int port,
+            ProductDAO productDAO, AuctionDAO auctionDAO, BidDAO bidDAO, int port,
             boolean persistentAuctionStorage) throws IOException {
         if (auctionSystem == null || userDAO == null) {
             throw new IllegalArgumentException("Auction system and user DAO are required.");
         }
-        if (persistentAuctionStorage && (productDAO == null || auctionDAO == null)) {
-            throw new IllegalArgumentException("Product and auction DAOs are required for persistent storage.");
+        if (persistentAuctionStorage
+                && (productDAO == null || auctionDAO == null || bidDAO == null)) {
+            throw new IllegalArgumentException("Product, auction, and bid DAOs are required for persistent storage.");
         }
         this.auctionSystem = auctionSystem;
         this.userDAO = userDAO;
         this.productDAO = productDAO;
         this.auctionDAO = auctionDAO;
+        this.bidDAO = bidDAO;
         this.persistentAuctionStorage = persistentAuctionStorage;
         this.server = HttpServer.create(new InetSocketAddress("127.0.0.1", port), 0);
         this.requestExecutor = Executors.newFixedThreadPool(4);
@@ -266,6 +278,8 @@ public class AuctionServer {
             sendError(exchange, 400, exception.getMessage());
         } catch (SQLException exception) {
             sendError(exchange, 500, "A database operation could not be completed.");
+        } catch (CommittedBidRecoveryException exception) {
+            sendError(exchange, 500, exception.getMessage());
         } catch (RuntimeException exception) {
             sendError(exchange, 500, "The auction request could not be completed.");
         } finally {
@@ -715,19 +729,95 @@ public class AuctionServer {
     private void placeBid(HttpExchange exchange, String auctionId)
             throws IOException, AuctionNotFoundException,
             UnauthorizedActionException, InvalidBidException, AuctionClosedException,
-            InsufficientBidException {
+            InsufficientBidException, SQLException, UserNotFoundException {
         User authenticatedUser = requireAuthenticatedUser(exchange);
         if (authenticatedUser == null) return;
         Buyer buyer = requireBuyer(authenticatedUser);
         BidRequest request = readBidRequest(exchange);
-        Auction auction = auctionSystem.getAuction(auctionId);
-
-        // Auction owns validation, expiry, increment rules, synchronization, and recording.
-        Bid bid = auction.placeBid(buyer, request.amount);
+        Auction auction;
+        Bid bid;
+        if (persistentAuctionStorage) {
+            Object auctionLock = auctionBidLocks.computeIfAbsent(auctionId, ignored -> new Object());
+            synchronized (auctionLock) {
+                auction = persistBidAndPublish(auctionId, buyer, request.amount);
+                bid = auction.getHighestValidBid();
+            }
+        } else {
+            auction = auctionSystem.getAuction(auctionId);
+            // Auction owns validation, expiry, increment rules, synchronization, and recording.
+            bid = auction.placeBid(buyer, request.amount);
+        }
         String json = "{\"success\":true,\"message\":\"Bid placed.\",\"bid\":"
                 + bidToJson(bid) + ",\"auction\":" + auctionToJson(auction) + "}";
         sendJson(exchange, 201, json);
     }
+
+    /** Validates against locked database state, commits the bid, then updates the shared model. */
+    private Auction persistBidAndPublish(String auctionId, Buyer buyer, double amount)
+            throws SQLException, UserNotFoundException, AuctionNotFoundException,
+            InvalidBidException, AuctionClosedException, InsufficientBidException,
+            UnauthorizedActionException {
+        try (Connection connection = DatabaseConnection.getConnection()) {
+            connection.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);
+            connection.setAutoCommit(false);
+            boolean committed = false;
+            try {
+                int buyerId = AuctionDAO.parseUserId(buyer.getUserId(), "Buyer ID");
+                User storedBuyer = userDAO.findUserById(connection, buyerId);
+                if (!(storedBuyer instanceof Buyer)) {
+                    throw new UnauthorizedActionException(
+                            "Only a registered Buyer can place a bid.");
+                }
+
+                Auction currentAuction = auctionDAO.findAuctionByIdForUpdate(connection, auctionId);
+                if (currentAuction == null) {
+                    throw new AuctionNotFoundException("Auction " + auctionId + " was not found.");
+                }
+
+                // The auction row lock serializes different server instances; Auction applies all bid rules.
+                Bid acceptedBid = currentAuction.placeBid(buyer, amount);
+                bidDAO.insertBid(connection, auctionId, acceptedBid);
+                Auction committedSnapshot = auctionDAO.findAuctionByIdForUpdate(connection, auctionId);
+                if (committedSnapshot == null) {
+                    throw new SQLException("Auction disappeared while its bid was being saved.");
+                }
+
+                connection.commit();
+                committed = true;
+                try {
+                    auctionSystem.replacePersistedAuction(committedSnapshot);
+                    return committedSnapshot;
+                } catch (RuntimeException publicationFailure) {
+                    try {
+                        Auction refreshed = auctionDAO.findAuctionById(connection, auctionId);
+                        if (refreshed == null) {
+                            throw new SQLException("Committed auction could not be reloaded.");
+                        }
+                        auctionSystem.replacePersistedAuction(refreshed);
+                        return refreshed;
+                    } catch (SQLException | UserNotFoundException | RuntimeException recoveryFailure) {
+                        publicationFailure.addSuppressed(recoveryFailure);
+                        throw new CommittedBidRecoveryException(
+                                "The bid was committed, but auction memory could not be refreshed. "
+                                        + "Do not retry this bid; restart the server.",
+                                publicationFailure);
+                    }
+                }
+            } catch (SQLException | UserNotFoundException | AuctionNotFoundException
+                    | InvalidBidException | AuctionClosedException | InsufficientBidException
+                    | UnauthorizedActionException | RuntimeException exception) {
+                if (!committed) {
+                    try {
+                        connection.rollback();
+                    } catch (SQLException rollbackException) {
+                        exception.addSuppressed(rollbackException);
+                    }
+                }
+                throw exception;
+            }
+        }
+    }
+
 
     private BidRequest readBidRequest(HttpExchange exchange) throws IOException {
         byte[] bodyBytes;
@@ -889,9 +979,10 @@ public class AuctionServer {
     public static void main(String[] args) throws IOException {
         UserDAO userDAO = new UserDAO();
         ProductDAO productDAO = new ProductDAO();
-        AuctionDAO auctionDAO = new AuctionDAO(productDAO, userDAO, new BidDAO(userDAO));
+        BidDAO bidDAO = new BidDAO(userDAO);
+        AuctionDAO auctionDAO = new AuctionDAO(productDAO, userDAO, bidDAO);
         AuctionServer server = new AuctionServer(new AuctionSystem(), userDAO,
-                productDAO, auctionDAO, DEFAULT_PORT);
+                productDAO, auctionDAO, bidDAO, DEFAULT_PORT);
         try {
             server.start();
         } catch (IllegalStateException exception) {
@@ -909,6 +1000,12 @@ public class AuctionServer {
 
         private BidRequest(double amount) {
             this.amount = amount;
+        }
+    }
+
+    private static final class CommittedBidRecoveryException extends RuntimeException {
+        private CommittedBidRecoveryException(String message, Throwable cause) {
+            super(message, cause);
         }
     }
 
