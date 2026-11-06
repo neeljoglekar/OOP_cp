@@ -1,8 +1,11 @@
 import java.io.IOException;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -15,9 +18,11 @@ import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import javax.imageio.ImageIO;
 
 /** MySQL and REST integration checks for persisted auction startup and seller creation. */
 public class AuctionPersistenceIntegrationTest {
+    private static final String BOUNDARY = "P3AuctionBoundary";
     private static HttpClient client;
 
     public static void main(String[] args) throws Exception {
@@ -49,6 +54,7 @@ public class AuctionPersistenceIntegrationTest {
         AuctionDAO auctionDAO = new AuctionDAO(productDAO, userDAO, bidDAO);
         boolean sellerCreated = false;
         boolean buyerCreated = false;
+        String createdImagePath = null;
         AuctionServer server = null;
         try {
             char[] sellerPassword = password.toCharArray();
@@ -111,12 +117,14 @@ public class AuctionPersistenceIntegrationTest {
             LocalDateTime endTime = LocalDateTime.now().plusDays(3)
                     .truncatedTo(ChronoUnit.MICROS);
             String createRequest = creationRequest(createdAuctionId, createdProductId,
-                    "Seller-created item", "Created through the persistent API.", "Like New",
+                    "Seller-created item", "Created through the persistent API.", "Excellent",
                     endTime, "2.5");
             HttpResponse<String> created = post(base, "/api/auctions", createRequest, sellerToken);
             check(created.statusCode() == 201 && created.body().contains(createdAuctionId),
                     "Seller auction creation through the persistent server failed.");
-            check(productDAO.findProductById(createdProductId) != null
+            Product persistedProduct = productDAO.findProductById(createdProductId);
+            createdImagePath = persistedProduct == null ? null : persistedProduct.getImagePath();
+            check(persistedProduct != null && createdImagePath != null
                             && auctionDAO.findAuctionById(createdAuctionId) != null,
                     "Seller-created product and auction were not persisted.");
             check(system.containsProductId(createdProductId)
@@ -135,7 +143,7 @@ public class AuctionPersistenceIntegrationTest {
                     "A duplicate auction ID was not rejected before inserting its product.");
 
             String rollbackRequest = creationRequest(rollbackAuctionId, rollbackProductId,
-                    "Rollback item", "This product insert must roll back.", "Used",
+                    "Rollback item", "This product insert must roll back.", "Average",
                     endTime, "0.00001");
             HttpResponse<String> rejected = post(base, "/api/auctions", rollbackRequest, sellerToken);
             check(rejected.statusCode() == 400,
@@ -153,10 +161,28 @@ public class AuctionPersistenceIntegrationTest {
                             endTime, "1.0"), buyerToken).statusCode() == 403,
                     "A Buyer was allowed to create an auction.");
 
+            server.stop();
+            server = null;
+            AuctionSystem restartedSystem = new AuctionSystem();
+            server = new AuctionServer(restartedSystem, userDAO, productDAO, auctionDAO, bidDAO, 0);
+            server.start();
+            URI restartedBase = URI.create("http://127.0.0.1:" + server.getPort());
+            Auction restoredAuction = restartedSystem.getAuction(createdAuctionId);
+            check("Excellent".equals(restoredAuction.getProduct().getCondition())
+                            && createdImagePath.equals(restoredAuction.getProduct().getImagePath()),
+                    "Condition or image path was not restored from MySQL after restart.");
+            HttpResponse<String> restoredImage = get(restartedBase,
+                    "/api/products/images/" + createdImagePath, null);
+            check(restoredImage.statusCode() == 200
+                            && "image/png".equals(restoredImage.headers()
+                                    .firstValue("Content-Type").orElse("")),
+                    "The persisted product image was not available after server restart.");
+
             System.out.println("AuctionPersistenceIntegrationTest passed: startup loading, "
                     + "REST visibility, seller persistence, rollback, dashboard, and role checks.");
         } finally {
             if (server != null) server.stop();
+            if (createdImagePath != null) new ProductImageStorage().delete(createdImagePath);
             cleanup(unique, duplicateProductId, sellerEmail, buyerEmail, userIds,
                     sellerCreated, buyerCreated);
         }
@@ -173,10 +199,29 @@ public class AuctionPersistenceIntegrationTest {
 
     private static String creationRequest(String auctionId, String productId, String name,
             String description, String condition, LocalDateTime endTime, String increment) {
-        return "{\"auctionId\":\"" + auctionId + "\",\"productId\":\"" + productId
-                + "\",\"productName\":\"" + name + "\",\"description\":\"" + description
-                + "\",\"condition\":\"" + condition + "\",\"endTime\":\"" + endTime
-                + "\",\"minimumBidIncrement\":" + increment + "}";
+        return multipartField("auctionId", auctionId) + multipartField("productId", productId)
+                + multipartField("productName", name) + multipartField("description", description)
+                + multipartField("condition", condition) + multipartField("endTime", endTime.toString())
+                + multipartField("minimumBidIncrement", increment)
+                + "--" + BOUNDARY + "\r\nContent-Disposition: form-data; name=\"productImage\"; "
+                + "filename=\"ignored.png\"\r\nContent-Type: application/octet-stream\r\n\r\n"
+                + new String(testPng(), StandardCharsets.ISO_8859_1)
+                + "\r\n--" + BOUNDARY + "--\r\n";
+    }
+
+    private static String multipartField(String name, String value) {
+        return "--" + BOUNDARY + "\r\nContent-Disposition: form-data; name=\"" + name
+                + "\"\r\n\r\n" + value + "\r\n";
+    }
+
+    private static byte[] testPng() {
+        try {
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            ImageIO.write(new BufferedImage(1, 1, BufferedImage.TYPE_INT_RGB), "png", output);
+            return output.toByteArray();
+        } catch (IOException exception) {
+            throw new IllegalStateException(exception);
+        }
     }
 
     private static String login(URI base, String email, String password) throws Exception {
@@ -198,10 +243,13 @@ public class AuctionPersistenceIntegrationTest {
 
     private static HttpResponse<String> post(URI base, String path, String body, String token)
             throws Exception {
+        boolean multipart = body.startsWith("--" + BOUNDARY);
         HttpRequest.Builder builder = HttpRequest.newBuilder(base.resolve(path))
-                .timeout(Duration.ofSeconds(4)).header("Content-Type", "application/json");
+                .timeout(Duration.ofSeconds(4)).header("Content-Type", multipart
+                        ? "multipart/form-data; boundary=" + BOUNDARY : "application/json");
         if (token != null) builder.header("Authorization", "Bearer " + token);
-        return client.send(builder.POST(HttpRequest.BodyPublishers.ofString(body)).build(),
+        return client.send(builder.POST(HttpRequest.BodyPublishers.ofByteArray(
+                body.getBytes(StandardCharsets.ISO_8859_1))).build(),
                 HttpResponse.BodyHandlers.ofString());
     }
 

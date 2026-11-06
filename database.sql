@@ -20,8 +20,26 @@ CREATE TABLE IF NOT EXISTS products (
     product_id VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     description TEXT NOT NULL,
-    `condition` VARCHAR(100) NOT NULL
+    `condition` VARCHAR(100) NOT NULL,
+    image_path VARCHAR(255) NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- Add the image reference to an existing products table without replacing rows.
+SET @image_path_column_exists = (
+    SELECT COUNT(*)
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'products'
+      AND COLUMN_NAME = 'image_path'
+);
+SET @image_path_migration = IF(
+    @image_path_column_exists = 0,
+    'ALTER TABLE products ADD COLUMN image_path VARCHAR(255) NULL',
+    'SELECT ''products.image_path already exists'''
+);
+PREPARE image_path_migration_statement FROM @image_path_migration;
+EXECUTE image_path_migration_statement;
+DEALLOCATE PREPARE image_path_migration_statement;
 
 -- Auction IDs are Java Strings. `closed` stores only manual closure; the
 -- effective status is derived from `closed` and `end_time`. A NULL end_time

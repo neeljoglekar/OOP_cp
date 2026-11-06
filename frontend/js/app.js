@@ -67,6 +67,10 @@ const createProductIdInput = document.querySelector('#create-product-id');
 const createProductNameInput = document.querySelector('#create-product-name');
 const createProductDescriptionInput = document.querySelector('#create-product-description');
 const createProductConditionInput = document.querySelector('#create-product-condition');
+const createProductImageInput = document.querySelector('#create-product-image');
+const createProductImageFilename = document.querySelector('#create-product-image-filename');
+const createProductImagePreview = document.querySelector('#create-product-image-preview');
+const removeProductImageButton = document.querySelector('#remove-product-image-button');
 const createAuctionEndTimeInput = document.querySelector('#create-auction-end-time');
 const createAuctionIncrementInput = document.querySelector('#create-auction-increment');
 const createAuctionButton = document.querySelector('#create-auction-submit');
@@ -95,6 +99,8 @@ let sellerAuctionMessageTimer = null;
 let createAuctionFormOpen = false;
 let allAuctions = [];
 let roleDashboardRequestInProgress = false;
+let selectedProductPreviewUrl = null;
+let auctionClosureInProgress = false;
 
 if (isLoginPage) {
     loginForm.addEventListener('submit', submitLogin);
@@ -115,8 +121,6 @@ document.querySelector('#close-details').addEventListener('click', () => {
 
 bidForm.addEventListener('submit', submitBid);
 logoutButton.addEventListener('click', submitLogout);
-viewProfileButton.addEventListener('click', loadProfile);
-editProfileButton.addEventListener('click', openProfileEditor);
 profileMenuTrigger.addEventListener('click', () => {
     const isOpen = !profileMenuDropdown.hidden;
     profileMenuDropdown.hidden = isOpen;
@@ -138,9 +142,12 @@ showCreateAuctionButton.addEventListener('click', () => {
     updateAuthenticationUI();
 });
 createAuctionForm.addEventListener('submit', submitAuctionCreation);
+createProductImageInput.addEventListener('change', previewProductImage);
+removeProductImageButton.addEventListener('click', removeSelectedProductImage);
 cancelCreateAuctionButton.addEventListener('click', () => {
     createAuctionFormOpen = false;
     createAuctionForm.reset();
+    clearProductImagePreview();
     sellerAuctionMessage.hidden = true;
     updateAuthenticationUI();
 });
@@ -151,6 +158,7 @@ document.querySelector('#cancel-profile-button').addEventListener('click', () =>
 window.addEventListener('beforeunload', () => {
     stopAuctionPolling();
     stopAuctionListPolling();
+    clearProductImagePreview();
 });
 auctionSearchInput.addEventListener('input', renderFilteredAuctions);
 auctionStatusFilter.addEventListener('change', renderFilteredAuctions);
@@ -273,14 +281,21 @@ function friendlyApiError(error, action) {
         return 'The profile request could not be completed. Please try again.';
     }
     if (action === 'auction-create') {
-        if (error.status === 400) {
-            return error.responseMessage || 'Check that all auction details are valid and the end time is in the future.';
-        }
+        if ([400, 409, 413].includes(error.status) && error.responseMessage) return error.responseMessage;
         if (error.status === 401) return 'Log in with a seller account to create an auction.';
         if (error.status === 403) return 'Only a seller can create an auction.';
-        if (error.status === 409) return 'That auction ID is already in use.';
-        if (error.status === 500) return 'The auction could not be created because of a server problem.';
+        if (error.status === 500) {
+            return error.responseMessage || 'The auction could not be created because of a server problem.';
+        }
         return 'The auction could not be created. Check the details and try again.';
+    }
+    if (action === 'auction-close') {
+        if (error.status === 401) return 'Log in again to end your auction.';
+        if (error.status === 403) return 'You can only end your own auctions as a seller.';
+        if (error.status === 404) return 'That auction could not be found.';
+        if (error.status === 409) return 'This auction has already ended or expired.';
+        if (error.status >= 500) return 'The auction could not be ended because of a server problem.';
+        return 'The auction could not be ended. Please try again.';
     }
     if (error.status === 400) {
         if (serverMessage.includes('minimum next bid')) {
@@ -394,11 +409,22 @@ async function submitAuctionCreation(event) {
     const productName = createProductNameInput.value.trim();
     const description = createProductDescriptionInput.value.trim();
     const condition = createProductConditionInput.value.trim();
+    const image = createProductImageInput.files && createProductImageInput.files[0];
     const endTime = createAuctionEndTimeInput.value;
     const incrementText = createAuctionIncrementInput.value.trim();
     if (!auctionId || !productId || !productName || !description || !condition
-            || !endTime || !incrementText) {
+            || !endTime || !incrementText || !image) {
         showAccountMessage(sellerAuctionMessage, 'Complete every auction and product field.', true);
+        return;
+    }
+    if (!['Poor', 'Average', 'Good', 'Excellent'].includes(condition)) {
+        showAccountMessage(sellerAuctionMessage, 'Choose Poor, Average, Good, or Excellent.', true);
+        return;
+    }
+    if (!/\.(jpe?g|png|webp)$/i.test(image.name || '')
+            || image.size === 0 || image.size > 5 * 1024 * 1024) {
+        showAccountMessage(sellerAuctionMessage,
+            'Choose a JPG, JPEG, PNG, or WEBP image larger than 0 bytes and no larger than 5 MB.', true);
         return;
     }
     const endDate = new Date(endTime);
@@ -418,19 +444,20 @@ async function submitAuctionCreation(event) {
     sellerAuctionMessage.hidden = true;
     updateAuthenticationUI();
     try {
+        const formData = new FormData();
+        formData.append('auctionId', auctionId);
+        formData.append('productId', productId);
+        formData.append('productName', productName);
+        formData.append('description', description);
+        formData.append('condition', condition);
+        formData.append('endTime', endTime);
+        formData.append('minimumBidIncrement', incrementText);
+        formData.append('productImage', image);
         const data = await fetchAuthenticatedJson(`${API_BASE_URL}/auctions`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                auctionId,
-                productId,
-                productName,
-                description,
-                condition,
-                endTime,
-                minimumBidIncrement
-            })
+            body: formData
         });
+        clearProductImagePreview();
         createAuctionForm.reset();
         createAuctionFormOpen = false;
         updateAuthenticationUI();
@@ -458,6 +485,49 @@ async function submitAuctionCreation(event) {
         createAuctionButton.textContent = 'Create auction';
         updateAuthenticationUI();
     }
+}
+
+function previewProductImage() {
+    const image = createProductImageInput.files && createProductImageInput.files[0];
+    clearProductImagePreview();
+    if (!image) return;
+    const hasAllowedExtension = /\.(jpe?g|png|webp)$/i.test(image.name || '');
+    if (!hasAllowedExtension || image.size === 0 || image.size > 5 * 1024 * 1024) {
+        createProductImageInput.value = '';
+        showAccountMessage(sellerAuctionMessage, !hasAllowedExtension
+            ? 'Choose a JPG, JPEG, PNG, or WEBP image.'
+            : 'Choose an image larger than 0 bytes and no larger than 5 MB.', true);
+        return;
+    }
+    selectedProductPreviewUrl = URL.createObjectURL(image);
+    createProductImageFilename.textContent = image.name;
+    createProductImageFilename.hidden = false;
+    createProductImagePreview.onerror = () => {
+        createProductImageInput.value = '';
+        clearProductImagePreview();
+        showAccountMessage(sellerAuctionMessage,
+            'The selected file could not be opened as an image. Choose a valid image file.', true);
+    };
+    createProductImagePreview.src = selectedProductPreviewUrl;
+    createProductImagePreview.hidden = false;
+    removeProductImageButton.hidden = false;
+    sellerAuctionMessage.hidden = true;
+}
+
+function clearProductImagePreview() {
+    if (selectedProductPreviewUrl) URL.revokeObjectURL(selectedProductPreviewUrl);
+    selectedProductPreviewUrl = null;
+    createProductImageFilename.textContent = '';
+    createProductImageFilename.hidden = true;
+    createProductImagePreview.removeAttribute('src');
+    createProductImagePreview.onerror = null;
+    createProductImagePreview.hidden = true;
+    removeProductImageButton.hidden = true;
+}
+
+function removeSelectedProductImage() {
+    createProductImageInput.value = '';
+    clearProductImagePreview();
 }
 
 function setAuthMode(mode) {
@@ -797,8 +867,81 @@ function renderAuction(auction) {
     button.addEventListener('click', () => loadAuctionDetails(auction.auctionId));
     actions.append(button);
 
+    addProductImage(card, product, false);
     card.append(topLine, title, description, facts, actions);
+    if (isLoggedInSeller() && auction.status === 'open' && auction.seller
+            && String(auction.seller.userId) === String(currentUser.userId)) {
+        const endButton = createElement('button', 'button end-auction-button', 'End auction');
+        endButton.type = 'button';
+        endButton.disabled = auctionClosureInProgress;
+        endButton.addEventListener('click', () => endAuction(auction.auctionId));
+        actions.append(endButton);
+    }
     return card;
+}
+
+function addProductImage(container, product, large) {
+    const imageUrl = productImageUrl(product);
+    if (!imageUrl) {
+        const placeholder = createElement('div',
+            large ? 'product-image-placeholder product-image-large' : 'product-image-placeholder',
+            'Product image unavailable');
+        placeholder.setAttribute('aria-label', 'Product image unavailable');
+        container.append(placeholder);
+        return;
+    }
+    const image = createElement('img', large ? 'auction-product-image product-image-large'
+        : 'auction-product-image');
+    image.src = imageUrl;
+    image.alt = `${displayValue(product.name, 'Auction product')} image`;
+    image.loading = 'lazy';
+    image.addEventListener('error', () => {
+        image.replaceWith(createElement('div',
+            large ? 'product-image-placeholder product-image-large' : 'product-image-placeholder',
+            'Product image unavailable'));
+    }, { once: true });
+    container.append(image);
+}
+
+function productImageUrl(product) {
+    if (!product || typeof product.imageUrl !== 'string') return null;
+    try {
+        const image = new URL(product.imageUrl, API_BASE_URL);
+        const api = new URL(API_BASE_URL);
+        if (image.origin !== api.origin
+                || !/^\/api\/products\/images\/[0-9a-f-]+\.(?:jpg|png|webp)$/i.test(image.pathname)) {
+            return null;
+        }
+        return image.href;
+    } catch {
+        return null;
+    }
+}
+
+async function endAuction(auctionId) {
+    if (!isLoggedInSeller() || auctionClosureInProgress) return;
+    if (!window.confirm('Are you sure you want to end this auction? Buyers will no longer be able to place bids.')) {
+        return;
+    }
+    auctionClosureInProgress = true;
+    try {
+        const result = await fetchAuthenticatedJson(
+            `${API_BASE_URL}/auctions/${encodeURIComponent(auctionId)}/close`, { method: 'POST' });
+        await loadAuctions();
+        await loadRoleDashboard();
+        if (String(selectedAuctionId) === String(auctionId)) {
+            const data = await fetchJson(`${API_BASE_URL}/auctions/${encodeURIComponent(auctionId)}`);
+            if (data.auction) {
+                renderDetails(data.auction);
+                noteAuctionUpdated();
+            }
+        }
+        showMessage(result.message || 'Auction ended successfully.', 'success');
+    } catch (error) {
+        showMessage(friendlyApiError(error, 'auction-close'), 'error');
+    } finally {
+        auctionClosureInProgress = false;
+    }
 }
 
 function renderAuctions(data) {
@@ -813,24 +956,9 @@ function renderAuctions(data) {
 
 function updateConditionOptions(auctions) {
     const selectedCondition = auctionConditionFilter.value;
-    const conditionsByKey = new Map();
-    auctions.forEach((auction) => {
-        const condition = auction.product && typeof auction.product.condition === 'string'
-            ? auction.product.condition.trim() : '';
-        if (condition) conditionsByKey.set(condition.toLowerCase(), condition);
-    });
-
-    auctionConditionFilter.replaceChildren(createElement('option', '', 'All conditions'));
-    auctionConditionFilter.options[0].value = 'all';
-    [...conditionsByKey.values()].sort((first, second) => first.localeCompare(second))
-        .forEach((condition) => {
-            const option = createElement('option', '', condition);
-            option.value = condition;
-            auctionConditionFilter.append(option);
-        });
-    auctionConditionFilter.value = [...conditionsByKey.values()]
-        .some((condition) => condition.toLowerCase() === selectedCondition.toLowerCase())
-        ? selectedCondition : 'all';
+    const allowedConditions = ['all', 'poor', 'average', 'good', 'excellent'];
+    auctionConditionFilter.value = allowedConditions.includes(selectedCondition.toLowerCase())
+        ? selectedCondition.toLowerCase() : 'all';
 }
 
 function renderFilteredAuctions() {
@@ -938,6 +1066,7 @@ function renderMyBid(entry) {
     topLine.append(createElement('span', `auction-status ${statusDisplay.className}`,
         statusDisplay.label));
     card.append(topLine);
+    addProductImage(card, auction.product || {}, false);
     card.append(createElement('h4', '', displayValue(
         auction.product && auction.product.name, 'Untitled product')));
     card.append(createElement('p', 'auction-id', `Auction ${displayValue(auction.auctionId, '—')}`));
@@ -1015,6 +1144,7 @@ function renderDetails(auction, shouldScroll = false) {
     const highestBid = auction.currentHighestBid;
     selectedEndTime = auction.endTime || null;
     detailsContent.replaceChildren();
+    addProductImage(detailsContent, product, true);
     detailsContent.append(createElement('h3', '', displayValue(product.name, 'Untitled product')));
     detailsContent.append(createElement('p', '', displayValue(product.description, 'No description provided.')));
 

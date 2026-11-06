@@ -43,8 +43,8 @@
                         <span class="eyebrow">Signed in account</span>
                         <span id="logged-in-id"></span>
                     </div>
-                    <button id="view-profile-button" class="profile-menu-item" type="button">View profile</button>
-                    <button id="edit-profile-button" class="profile-menu-item" type="button">Edit profile</button>
+                    <a id="view-profile-button" class="profile-menu-item" href="profile.html">View profile</a>
+                    <a id="edit-profile-button" class="profile-menu-item" href="profile.html?edit=1">Edit profile</a>
                     <div class="profile-menu-divider"></div>
                     <button id="logout-button" class="profile-menu-item logout-menu-item" type="button">Log out</button>
                 </div>
@@ -129,7 +129,7 @@
                         Create auction
                     </button>
                 </div>
-                <p class="form-note">Auction details are kept in memory by the running Java API.</p>
+                <p class="form-note">Auction and product details are saved by the Java API to MySQL.</p>
                 <form id="create-auction-form" class="account-form" hidden>
                     <label>
                         <span>Auction ID</span>
@@ -148,8 +148,26 @@
                         <textarea id="create-product-description" name="description" rows="3" required></textarea>
                     </label>
                     <label>
-                        <span>Condition</span>
-                        <input id="create-product-condition" name="condition" type="text" required>
+                        <span>Product Condition</span>
+                        <select id="create-product-condition" name="condition" required>
+                            <option value="" selected disabled>Select a condition</option>
+                            <option value="Poor">Poor</option>
+                            <option value="Average">Average</option>
+                            <option value="Good">Good</option>
+                            <option value="Excellent">Excellent</option>
+                        </select>
+                    </label>
+                    <label class="image-upload-field">
+                        <span>Product Image</span>
+                        <input id="create-product-image" name="productImage" type="file"
+                               accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" required>
+                        <small>JPG, JPEG, PNG, or WEBP · Maximum 5 MB. Select another file to replace it.</small>
+                        <span id="create-product-image-filename" class="selected-file-name" hidden></span>
+                        <img id="create-product-image-preview" class="product-image-preview"
+                             alt="Selected product preview" hidden>
+                        <button id="remove-product-image-button" class="text-button" type="button" hidden>
+                            Remove image
+                        </button>
                     </label>
                     <label>
                         <span>Auction end time</span>
@@ -202,6 +220,10 @@
                     <span>Condition</span>
                     <select id="auction-condition-filter">
                         <option value="all">All conditions</option>
+                        <option value="poor">Poor</option>
+                        <option value="average">Average</option>
+                        <option value="good">Good</option>
+                        <option value="excellent">Excellent</option>
                     </select>
                 </label>
                 <label>

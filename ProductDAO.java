@@ -8,9 +8,10 @@ import java.util.List;
 /** JDBC data access for products. */
 public class ProductDAO {
     private static final String INSERT_SQL =
-            "INSERT INTO products (product_id, name, description, `condition`) VALUES (?, ?, ?, ?)";
+            "INSERT INTO products (product_id, name, description, `condition`, image_path) "
+                    + "VALUES (?, ?, ?, ?, ?)";
     private static final String SELECT_COLUMNS =
-            "SELECT product_id, name, description, `condition` FROM products ";
+            "SELECT product_id, name, description, `condition`, image_path FROM products ";
 
     public void insertProduct(Product product) throws SQLException {
         try (Connection connection = DatabaseConnection.getConnection()) {
@@ -27,6 +28,7 @@ public class ProductDAO {
             statement.setString(2, product.getName());
             statement.setString(3, product.getDescription());
             statement.setString(4, product.getCondition());
+            statement.setString(5, product.getImagePath());
             statement.executeUpdate();
         }
     }
@@ -70,7 +72,8 @@ public class ProductDAO {
 
     private static Product readProduct(ResultSet results) throws SQLException {
         return new Product(results.getString("product_id"), results.getString("name"),
-                results.getString("description"), results.getString("condition"));
+                results.getString("description"), results.getString("condition"),
+                results.getString("image_path"));
     }
 
     private static void validateProduct(Product product) {
@@ -81,6 +84,15 @@ public class ProductDAO {
             throw new IllegalArgumentException("Product description is required.");
         }
         requireText(product.getCondition(), "Product condition", 100);
+        if (!Product.isAllowedCondition(product.getCondition())) {
+            throw new IllegalArgumentException(
+                    "Product condition must be Poor, Average, Good, or Excellent.");
+        }
+        if (product.getImagePath() != null
+                && !product.getImagePath().matches(
+                        "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.(jpg|png|webp)")) {
+            throw new IllegalArgumentException("Product image path is invalid.");
+        }
     }
 
     private static void requireText(String value, String label, int maximumLength) {

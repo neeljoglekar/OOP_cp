@@ -3,12 +3,19 @@ public class Product {
     private String name;
     private String description;
     private String condition;
+    private String imagePath;
 
     public Product(String productId, String name, String description, String condition) {
+        this(productId, name, description, condition, null);
+    }
+
+    public Product(String productId, String name, String description, String condition,
+            String imagePath) {
         this.productId = productId;
         this.name = name;
         this.description = description;
         this.condition = condition;
+        this.imagePath = imagePath;
     }
 
     public String getProductId() {
@@ -41,6 +48,19 @@ public class Product {
 
     public void setCondition(String condition) {
         this.condition = condition;
+    }
+
+    public String getImagePath() {
+        return imagePath;
+    }
+
+    public void setImagePath(String imagePath) {
+        this.imagePath = imagePath;
+    }
+
+    public static boolean isAllowedCondition(String condition) {
+        return "Poor".equals(condition) || "Average".equals(condition)
+                || "Good".equals(condition) || "Excellent".equals(condition);
     }
 
     @Override

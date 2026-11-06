@@ -2,16 +2,21 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
+import java.nio.charset.StandardCharsets;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import javax.imageio.ImageIO;
 
 /** In-memory REST checks for independent browser tokens and authenticated identity. */
 public class RestSessionIsolationTest {
     private static final HttpClient CLIENT = HttpClient.newHttpClient();
+    private static final String BOUNDARY = "SessionAuctionBoundary";
 
     public static void main(String[] args) throws Exception {
         AuctionSystem system = new AuctionSystem();
@@ -109,6 +114,9 @@ public class RestSessionIsolationTest {
         } finally {
             UserSession.logout();
             server.stop();
+            for (Product storedProduct : system.getProducts()) {
+                new ProductImageStorage().delete(storedProduct.getImagePath());
+            }
         }
     }
 
@@ -139,10 +147,13 @@ public class RestSessionIsolationTest {
 
     private static HttpResponse<String> post(URI base, String path, String body, String token)
             throws Exception {
+        boolean multipart = body.startsWith("--" + BOUNDARY);
         HttpRequest.Builder builder = HttpRequest.newBuilder(base.resolve(path))
-                .header("Content-Type", "application/json");
+                .header("Content-Type", multipart
+                        ? "multipart/form-data; boundary=" + BOUNDARY : "application/json");
         if (token != null) builder.header("Authorization", "Bearer " + token);
-        return CLIENT.send(builder.POST(HttpRequest.BodyPublishers.ofString(body)).build(),
+        return CLIENT.send(builder.POST(HttpRequest.BodyPublishers.ofByteArray(
+                body.getBytes(StandardCharsets.ISO_8859_1))).build(),
                 HttpResponse.BodyHandlers.ofString());
     }
 
@@ -161,11 +172,31 @@ public class RestSessionIsolationTest {
     }
 
     private static String creationJson(String auctionId, String productId) {
-        return "{\"auctionId\":\"" + auctionId + "\",\"productId\":\"" + productId
-                + "\",\"productName\":\"Test product\",\"description\":\"Test description\","
-                + "\"condition\":\"Good\",\"endTime\":\""
-                + LocalDateTime.now().plusHours(1).withNano(0)
-                + "\",\"minimumBidIncrement\":5.0}";
+        return multipartField("auctionId", auctionId) + multipartField("productId", productId)
+                + multipartField("productName", "Test product")
+                + multipartField("description", "Test description")
+                + multipartField("condition", "Good")
+                + multipartField("endTime", LocalDateTime.now().plusHours(1).withNano(0).toString())
+                + multipartField("minimumBidIncrement", "5.0")
+                + "--" + BOUNDARY + "\r\nContent-Disposition: form-data; name=\"productImage\"; "
+                + "filename=\"unused.png\"\r\nContent-Type: application/octet-stream\r\n\r\n"
+                + new String(testPng(), StandardCharsets.ISO_8859_1)
+                + "\r\n--" + BOUNDARY + "--\r\n";
+    }
+
+    private static String multipartField(String name, String value) {
+        return "--" + BOUNDARY + "\r\nContent-Disposition: form-data; name=\"" + name
+                + "\"\r\n\r\n" + value + "\r\n";
+    }
+
+    private static byte[] testPng() {
+        try {
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            ImageIO.write(new BufferedImage(1, 1, BufferedImage.TYPE_INT_RGB), "png", output);
+            return output.toByteArray();
+        } catch (java.io.IOException exception) {
+            throw new IllegalStateException(exception);
+        }
     }
 
     private static void check(boolean condition, String message) {

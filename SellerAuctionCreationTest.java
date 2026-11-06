@@ -2,12 +2,17 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import javax.imageio.ImageIO;
 
 /** In-memory HTTP checks for seller-only auction creation and authenticated bidding. */
 public class SellerAuctionCreationTest {
+    private static final String BOUNDARY = "AuctionTestBoundary";
     public static void main(String[] args) throws Exception {
         AuctionSystem system = new AuctionSystem();
         AuctionServer server = new AuctionServer(system, new CreationUserDAO(), 0);
@@ -42,6 +47,14 @@ public class SellerAuctionCreationTest {
                             && auction.getMinimumBidIncrement() == 25.0
                             && requestedEndTime.equals(auction.getEndTime()),
                     "Created objects did not preserve authenticated seller or submitted details.");
+            Matcher imageMatcher = Pattern.compile("\\\"imageUrl\\\":\\\"([^\\\"]+)\\\"")
+                    .matcher(created.body());
+            check(auction.getProduct().getImagePath() != null && imageMatcher.find(),
+                    "The uploaded image was not saved and returned in auction data.");
+            HttpResponse<String> image = get(client, baseUri.resolve(imageMatcher.group(1)));
+            check(image.statusCode() == 200
+                            && "image/png".equals(image.headers().firstValue("Content-Type").orElse("")),
+                    "The saved product image was not served with a safe image content type.");
 
             HttpResponse<String> duplicate = post(client, baseUri, "/api/auctions",
                     validRequest, sellerToken);
@@ -86,8 +99,27 @@ public class SellerAuctionCreationTest {
                                 LocalDateTime.now().plusHours(1), increment), sellerToken).statusCode() == 400,
                         "Invalid minimum bid increment was not rejected: " + increment);
             }
-            String spoofedRequest = validRequest.substring(0, validRequest.length() - 1)
-                    + ",\"sellerId\":9999}";
+            check(post(client, baseUri, "/api/auctions", "{}", sellerToken).statusCode() == 400,
+                    "A request with no uploaded image was accepted.");
+            check(post(client, baseUri, "/api/auctions",
+                    creationRequest("CREATE-2", "PRODUCT-2", "Name", "Desc", "Like New",
+                            LocalDateTime.now().plusHours(1), "1.0"), sellerToken).statusCode() == 400,
+                    "An unsupported product condition was accepted.");
+            check(post(client, baseUri, "/api/auctions",
+                    creationRequest("CREATE-2", "PRODUCT-2", "Name", "Desc", "Good",
+                            LocalDateTime.now().plusHours(1), "1.0", "not an image"),
+                    sellerToken).statusCode() == 400,
+                    "An upload with invalid image content was accepted.");
+            String truncatedPng = new String(java.util.Arrays.copyOf(testPng(), 33),
+                    StandardCharsets.ISO_8859_1);
+            HttpResponse<String> corruptImage = post(client, baseUri, "/api/auctions",
+                    creationRequest("CREATE-2", "PRODUCT-2", "Name", "Desc", "Good",
+                            LocalDateTime.now().plusHours(1), "1.0", truncatedPng), sellerToken);
+            check(corruptImage.statusCode() == 400
+                            && corruptImage.body().contains("not a valid image"),
+                    "Corrupt image bytes were reported as a storage/server failure instead of a validation error.");
+            String spoofedRequest = validRequest.replace("--" + BOUNDARY + "--",
+                    multipartField("sellerId", "9999") + "--" + BOUNDARY + "--");
             check(post(client, baseUri, "/api/auctions", spoofedRequest, sellerToken).statusCode() == 400,
                     "Auction creation accepted a seller ID from the request.");
 
@@ -95,15 +127,43 @@ public class SellerAuctionCreationTest {
                     + "creation, validation, list/detail, and session-bound bidding.");
         } finally {
             server.stop();
+            for (Product product : system.getProducts()) {
+                new ProductImageStorage().delete(product.getImagePath());
+            }
         }
     }
 
     private static String creationRequest(String auctionId, String productId, String name,
             String description, String condition, Object endTime, String increment) {
-        return "{\"auctionId\":\"" + auctionId + "\",\"productId\":\"" + productId
-                + "\",\"productName\":\"" + name + "\",\"description\":\"" + description
-                + "\",\"condition\":\"" + condition + "\",\"endTime\":\"" + endTime
-                + "\",\"minimumBidIncrement\":" + increment + "}";
+        return creationRequest(auctionId, productId, name, description, condition,
+                endTime, increment, new String(testPng(), StandardCharsets.ISO_8859_1));
+    }
+
+    private static String creationRequest(String auctionId, String productId, String name,
+            String description, String condition, Object endTime, String increment, String image) {
+        return multipartField("auctionId", auctionId) + multipartField("productId", productId)
+                + multipartField("productName", name) + multipartField("description", description)
+                + multipartField("condition", condition) + multipartField("endTime", endTime.toString())
+                + multipartField("minimumBidIncrement", increment)
+                + "--" + BOUNDARY + "\r\nContent-Disposition: form-data; name=\"productImage\"; "
+                + "filename=\"original-name-is-ignored.png\"\r\nContent-Type: text/plain\r\n\r\n"
+                + image
+                + "\r\n--" + BOUNDARY + "--\r\n";
+    }
+
+    private static String multipartField(String name, String value) {
+        return "--" + BOUNDARY + "\r\nContent-Disposition: form-data; name=\"" + name
+                + "\"\r\n\r\n" + value + "\r\n";
+    }
+
+    private static byte[] testPng() {
+        try {
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            ImageIO.write(new BufferedImage(1, 1, BufferedImage.TYPE_INT_RGB), "png", output);
+            return output.toByteArray();
+        } catch (java.io.IOException exception) {
+            throw new IllegalStateException(exception);
+        }
     }
 
     private static String login(HttpClient client, URI baseUri, String email) throws Exception {
@@ -118,10 +178,13 @@ public class SellerAuctionCreationTest {
 
     private static HttpResponse<String> post(HttpClient client, URI baseUri, String path,
             String body, String token) throws Exception {
+        boolean multipart = body.startsWith("--" + BOUNDARY);
         HttpRequest.Builder builder = HttpRequest.newBuilder(baseUri.resolve(path))
-                .header("Content-Type", "application/json");
+                .header("Content-Type", multipart
+                        ? "multipart/form-data; boundary=" + BOUNDARY : "application/json");
         if (token != null) builder.header("Authorization", "Bearer " + token);
-        return client.send(builder.POST(HttpRequest.BodyPublishers.ofString(body)).build(),
+        return client.send(builder.POST(HttpRequest.BodyPublishers.ofByteArray(
+                body.getBytes(StandardCharsets.ISO_8859_1))).build(),
                 HttpResponse.BodyHandlers.ofString());
     }
 

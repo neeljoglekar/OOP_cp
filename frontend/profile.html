@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#10243f">
+    <meta name="description" content="View and update your Online Auction Simulator profile.">
+    <title>My Profile · Online Auction Simulator</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="js/profile.js" defer></script>
+</head>
+<body data-page="profile" class="auth-pending">
+    <header class="site-header">
+        <div class="header-inner profile-header-inner">
+            <a class="brand" href="index.html" aria-label="Online Auction Simulator home">
+                <span class="brand-mark" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <path d="m14.2 4.3 5.5 5.5M10.7 7.8l5.5 5.5M8.3 10.2l5.5 5.5M4.8 13.7l5.5 5.5M3 21h18M12.5 3l8.5 8.5-3.2 3.2L9.3 6.2 12.5 3Z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </span>
+                <span class="brand-name">Online Auction Simulator</span>
+            </a>
+            <nav aria-label="Main navigation">
+                <a class="nav-link" href="index.html#auctions">Auctions</a>
+                <a class="nav-link" href="index.html#account-section">My account</a>
+            </nav>
+            <div class="header-account profile-header-account">
+                <span id="profile-header-avatar" class="profile-avatar" aria-hidden="true">U</span>
+                <span class="profile-menu-identity">
+                    <strong id="profile-header-name">Loading profile…</strong>
+                    <span id="profile-header-role"></span>
+                </span>
+                <button id="profile-logout-button" class="button" type="button">Log out</button>
+            </div>
+        </div>
+    </header>
+
+    <main class="profile-page-main">
+        <a class="auth-back-link profile-back-link" href="index.html">← Back to auctions</a>
+        <section class="profile-page-card account-section" aria-labelledby="profile-page-title">
+            <p class="eyebrow">Account settings</p>
+            <h1 id="profile-page-title" class="profile-page-title">Your profile</h1>
+            <div id="profile-page-message" class="account-message" role="status" aria-live="polite" hidden></div>
+            <div id="profile-loading" class="form-note" role="status">Loading your profile…</div>
+            <section id="profile-display" class="dedicated-profile" hidden>
+                <span id="profile-page-avatar" class="profile-avatar profile-page-avatar" aria-hidden="true">U</span>
+                <dl class="profile-details dedicated-profile-details">
+                    <div><dt>Full name</dt><dd id="profile-page-name"></dd></div>
+                    <div><dt>Email address</dt><dd id="profile-page-email"></dd></div>
+                    <div><dt>Account role</dt><dd id="profile-page-role"></dd></div>
+                    <div><dt>User ID</dt><dd id="profile-page-id"></dd></div>
+                </dl>
+                <div class="account-form-actions profile-page-actions">
+                    <button id="profile-edit-button" class="submit-button" type="button">Edit profile</button>
+                    <a class="text-button" href="index.html">Return to auctions</a>
+                </div>
+            </section>
+            <form id="profile-edit-form" class="account-form profile-edit-form" hidden>
+                <label>
+                    <span>Full name</span>
+                    <input id="profile-edit-name" name="name" type="text" autocomplete="name" required>
+                </label>
+                <label>
+                    <span>Email address</span>
+                    <input id="profile-edit-email" name="email" type="email" autocomplete="email" required>
+                </label>
+                <label>
+                    <span>New password <small>(leave blank to keep the current password)</small></span>
+                    <input id="profile-edit-password" name="password" type="password" autocomplete="new-password">
+                </label>
+                <div class="account-form-actions">
+                    <button id="profile-save-button" class="submit-button" type="submit">Save changes</button>
+                    <button id="profile-cancel-button" class="text-button" type="button">Cancel</button>
+                </div>
+            </form>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <span>Online Auction Simulator</span>
+        <span>Student project · Auction data provided by the Java API</span>
+    </footer>
+</body>
+</html>

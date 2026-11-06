@@ -170,6 +170,21 @@ public class AuctionDAO {
         }
     }
 
+    /** Persists closure only when the authenticated seller owns an auction still marked open. */
+    public boolean closeAuction(Connection connection, String auctionId, int sellerId)
+            throws SQLException {
+        requireConnection(connection);
+        requireId(auctionId, "Auction ID");
+        if (sellerId <= 0) throw new IllegalArgumentException("Seller ID must be positive.");
+        String sql = "UPDATE auctions SET closed = TRUE "
+                + "WHERE auction_id = ? AND seller_id = ? AND closed = FALSE";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, auctionId);
+            statement.setInt(2, sellerId);
+            return statement.executeUpdate() == 1;
+        }
+    }
+
     private Auction readAuction(Connection connection, ResultSet results,
             Map<String, Product> products, Map<Integer, Seller> sellers,
             Map<Integer, Buyer> buyers, boolean lockBids)

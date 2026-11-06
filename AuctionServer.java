@@ -3,6 +3,7 @@ import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.ByteArrayOutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
@@ -12,9 +13,11 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -25,6 +28,7 @@ import java.util.regex.Pattern;
 public class AuctionServer {
     public static final int DEFAULT_PORT = 8080;
     private static final int MAX_REQUEST_BYTES = 4096;
+    private static final int MAX_MULTIPART_BYTES = ProductImageStorage.MAX_IMAGE_BYTES + 64 * 1024;
     private static final String JSON_NUMBER =
             "-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?";
     private static final Pattern BUYER_FIRST_BID_REQUEST = Pattern.compile(
@@ -35,20 +39,12 @@ public class AuctionServer {
                     + "\\s*\"buyerId\"\\s*:\\s*(0|[1-9][0-9]*)\\s*}\\s*$");
     private static final Pattern AMOUNT_ONLY_BID_REQUEST = Pattern.compile(
             "^\\s*\\{\\s*\"amount\"\\s*:\\s*(" + JSON_NUMBER + ")\\s*}\\s*$");
-    private static final Pattern AUCTION_CREATION_REQUEST = Pattern.compile(
-            "^\\s*\\{\\s*\"auctionId\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"\\s*,"
-                    + "\\s*\"productId\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"\\s*,"
-                    + "\\s*\"productName\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"\\s*,"
-                    + "\\s*\"description\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"\\s*,"
-                    + "\\s*\"condition\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"\\s*,"
-                    + "\\s*\"endTime\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"\\s*,"
-                    + "\\s*\"minimumBidIncrement\"\\s*:\\s*(" + JSON_NUMBER + ")\\s*}\\s*$");
-
     private final AuctionSystem auctionSystem;
     private final UserDAO userDAO;
     private final ProductDAO productDAO;
     private final AuctionDAO auctionDAO;
     private final BidDAO bidDAO;
+    private final ProductImageStorage productImageStorage = new ProductImageStorage();
     private final boolean persistentAuctionStorage;
     private final RestSessionStore sessionStore = new RestSessionStore();
     private final Map<String, Object> auctionBidLocks = new ConcurrentHashMap<>();
@@ -160,6 +156,21 @@ public class AuctionServer {
                 return;
             }
 
+            String productImagePrefix = "/api/products/images/";
+            if (path.startsWith(productImagePrefix)) {
+                if (!"GET".equalsIgnoreCase(method)) {
+                    sendError(exchange, 405, "Use GET for this endpoint.");
+                    return;
+                }
+                String filename = path.substring(productImagePrefix.length());
+                if (filename.isEmpty() || filename.contains("/")) {
+                    sendError(exchange, 404, "Product image was not found.");
+                    return;
+                }
+                sendProductImage(exchange, filename);
+                return;
+            }
+
             if ("/api/login".equals(path)) {
                 if (!"POST".equalsIgnoreCase(method)) {
                     sendError(exchange, 405, "Use POST for this endpoint.");
@@ -241,6 +252,20 @@ public class AuctionServer {
             if (path.startsWith(auctionPrefix)) {
                 String route = path.substring(auctionPrefix.length());
                 String bidSuffix = "/bids";
+                String closeSuffix = "/close";
+                if (route.endsWith(closeSuffix) && route.length() > closeSuffix.length()) {
+                    if (!"POST".equalsIgnoreCase(method)) {
+                        sendError(exchange, 405, "Use POST to end an auction.");
+                        return;
+                    }
+                    String auctionId = route.substring(0, route.length() - closeSuffix.length());
+                    if (auctionId.contains("/")) {
+                        sendError(exchange, 404, "Endpoint was not found.");
+                        return;
+                    }
+                    closeSellerAuction(exchange, auctionId);
+                    return;
+                }
                 if (route.endsWith(bidSuffix) && route.length() > bidSuffix.length()) {
                     if (!"POST".equalsIgnoreCase(method)) {
                         sendError(exchange, 405, "Use POST to place a bid.");
@@ -277,10 +302,13 @@ public class AuctionServer {
         } catch (IllegalArgumentException exception) {
             sendError(exchange, 400, exception.getMessage());
         } catch (SQLException exception) {
+            logServerError("Database request failed", exception);
             sendError(exchange, 500, "A database operation could not be completed.");
         } catch (CommittedBidRecoveryException exception) {
+            logServerError("Committed bid recovery failed", exception);
             sendError(exchange, 500, exception.getMessage());
         } catch (RuntimeException exception) {
+            logServerError("Unexpected request failure", exception);
             sendError(exchange, 500, "The auction request could not be completed.");
         } finally {
             exchange.close();
@@ -448,6 +476,31 @@ public class AuctionServer {
         return new String(bodyBytes, StandardCharsets.UTF_8);
     }
 
+    private byte[] readLimitedBody(HttpExchange exchange, int maximumBytes) throws IOException {
+        try (InputStream requestBody = exchange.getRequestBody()) {
+            byte[] body = requestBody.readNBytes(maximumBytes + 1);
+            if (body.length > maximumBytes) {
+                throw new IllegalArgumentException("Product image upload exceeds the 5 MB limit.");
+            }
+            return body;
+        }
+    }
+
+    private static int indexOf(byte[] source, byte[] target, int fromIndex) {
+        for (int index = fromIndex; index <= source.length - target.length; index++) {
+            if (matchesAt(source, target, index)) return index;
+        }
+        return -1;
+    }
+
+    private static boolean matchesAt(byte[] source, byte[] target, int index) {
+        if (index < 0 || index + target.length > source.length) return false;
+        for (int offset = 0; offset < target.length; offset++) {
+            if (source[index + offset] != target[offset]) return false;
+        }
+        return true;
+    }
+
     private LoginRequest readLoginRequest(HttpExchange exchange) throws IOException {
         byte[] bodyBytes;
         try (InputStream requestBody = exchange.getRequestBody()) {
@@ -598,12 +651,108 @@ public class AuctionServer {
                 + ",\"product\":{" + "\"productId\":" + jsonString(product.getProductId())
                 + ",\"name\":" + jsonString(product.getName())
                 + ",\"description\":" + jsonString(product.getDescription())
-                + ",\"condition\":" + jsonString(product.getCondition()) + "}"
+                + ",\"condition\":" + jsonString(product.getCondition())
+                + ",\"imageUrl\":" + jsonString(productImageUrl(product)) + "}"
                 + ",\"currentHighestBid\":" + highestBidJson
                 + ",\"minimumBidIncrement\":" + Double.toString(auction.getMinimumBidIncrement())
                 + ",\"endTime\":" + jsonString(auction.getEndTime().toString())
                 + ",\"status\":" + jsonString(auction.getStatus())
                 + ",\"winner\":" + winnerJson + "}";
+    }
+
+    private void sendProductImage(HttpExchange exchange, String filename) throws IOException {
+        byte[] image;
+        try {
+            image = productImageStorage.read(filename);
+        } catch (IllegalArgumentException | IOException exception) {
+            sendError(exchange, 404, "Product image was not found.");
+            return;
+        }
+        exchange.getResponseHeaders().set("Content-Type", ProductImageStorage.contentType(filename));
+        exchange.getResponseHeaders().set("X-Content-Type-Options", "nosniff");
+        exchange.getResponseHeaders().set("Cache-Control", "public, max-age=86400");
+        exchange.sendResponseHeaders(200, image.length);
+        try (OutputStream responseBody = exchange.getResponseBody()) {
+            responseBody.write(image);
+        }
+    }
+
+    private void closeSellerAuction(HttpExchange exchange, String auctionId)
+            throws IOException, AuctionNotFoundException, SQLException, UserNotFoundException,
+            UnauthorizedActionException, AuctionClosedException {
+        User authenticatedUser = requireAuthenticatedUser(exchange);
+        if (authenticatedUser == null) return;
+        if (!(authenticatedUser instanceof Seller)) {
+            sendError(exchange, 403, "Only the auction's seller can end it.");
+            return;
+        }
+        Seller seller = (Seller) authenticatedUser;
+        Object auctionLock = auctionBidLocks.computeIfAbsent(auctionId, ignored -> new Object());
+        synchronized (auctionLock) {
+            Auction auction;
+            if (persistentAuctionStorage) {
+                auction = persistAuctionClosure(auctionId, seller);
+                if (auction == null) {
+                    sendError(exchange, 404, "Auction " + auctionId + " was not found.");
+                    return;
+                }
+            } else {
+                auction = auctionSystem.getAuction(auctionId);
+                if (!seller.getUserId().equals(auction.getSeller().getUserId())) {
+                    sendError(exchange, 403, "You can only end your own auctions.");
+                    return;
+                }
+                if (!"open".equalsIgnoreCase(auction.getStatus())) {
+                    sendError(exchange, 409, "Only an active auction can be ended.");
+                    return;
+                }
+                auction.closeAuction();
+            }
+            sendJson(exchange, 200, "{\"success\":true,\"message\":"
+                    + jsonString("Auction ended successfully.") + ",\"auction\":"
+                    + auctionToJson(auction) + "}");
+        }
+    }
+
+    /** Returns null when the auction does not exist; only publishes closure after commit. */
+    private Auction persistAuctionClosure(String auctionId, Seller seller)
+            throws SQLException, UserNotFoundException, UnauthorizedActionException,
+            AuctionClosedException {
+        try (Connection connection = DatabaseConnection.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                Auction auction = auctionDAO.findAuctionByIdForUpdate(connection, auctionId);
+                if (auction == null) {
+                    connection.rollback();
+                    return null;
+                }
+                if (!seller.getUserId().equals(auction.getSeller().getUserId())) {
+                    connection.rollback();
+                    throw new UnauthorizedActionException("You can only end your own auctions.");
+                }
+                if (!"open".equalsIgnoreCase(auction.getStatus())) {
+                    connection.rollback();
+                    throw new AuctionClosedException("Only an active auction can be ended.");
+                }
+                int sellerId = AuctionDAO.parseUserId(seller.getUserId(), "Seller ID");
+                auction.closeAuction();
+                if (!auctionDAO.closeAuction(connection, auctionId, sellerId)) {
+                    connection.rollback();
+                    throw new AuctionClosedException("Auction is no longer open.");
+                }
+                connection.commit();
+                auctionSystem.replacePersistedAuction(auction);
+                return auction;
+            } catch (SQLException | UserNotFoundException | UnauthorizedActionException
+                    | AuctionClosedException | RuntimeException exception) {
+                try {
+                    connection.rollback();
+                } catch (SQLException rollbackException) {
+                    exception.addSuppressed(rollbackException);
+                }
+                throw exception;
+            }
+        }
     }
 
     private void createAuction(HttpExchange exchange) throws IOException, SQLException {
@@ -615,6 +764,10 @@ public class AuctionServer {
         }
 
         AuctionCreationRequest request = readAuctionCreationRequest(exchange);
+        if (!Product.isAllowedCondition(request.condition)) {
+            throw new IllegalArgumentException(
+                    "Choose a product condition: Poor, Average, Good, or Excellent.");
+        }
         LocalDateTime endTime;
         double minimumBidIncrement;
         try {
@@ -634,48 +787,71 @@ public class AuctionServer {
             throw new IllegalArgumentException("Minimum bid increment must be a positive finite number.");
         }
 
+        String imageFilename;
+        try {
+            imageFilename = productImageStorage.save(request.imageBytes);
+        } catch (IllegalArgumentException exception) {
+            throw exception;
+        } catch (IOException exception) {
+            logServerError("Product image storage failed", exception);
+            sendError(exchange, 500,
+                    "The product image could not be stored. Check the server's uploads/products directory.");
+            return;
+        }
         Product product = new Product(request.productId, request.productName,
-                request.description, request.condition);
+                request.description, request.condition, imageFilename);
         Seller seller = (Seller) currentUser;
         Auction auction;
-        synchronized (auctionSystem) {
-            if (auctionSystem.containsAuctionId(request.auctionId)) {
-                sendError(exchange, 409, "Auction ID already exists.");
-                return;
-            }
-            if (persistentAuctionStorage && auctionSystem.containsProductId(request.productId)) {
-                sendError(exchange, 409, "Product ID already exists.");
-                return;
-            }
-            try {
-                if (persistentAuctionStorage) {
-                    auction = new Auction(request.auctionId, product, seller,
-                            endTime, minimumBidIncrement);
-                    persistSellerAuction(product, auction);
-                } else {
-                    auction = seller.createAuction(auctionSystem, request.auctionId, product,
-                            endTime, minimumBidIncrement);
-                    seller.listProduct(auctionSystem, product);
-                }
-            } catch (IllegalArgumentException exception) {
-                if ("Auction ID already exists.".equals(exception.getMessage())
-                        || "Product ID already exists.".equals(exception.getMessage())) {
-                    sendError(exchange, 409, exception.getMessage());
+        boolean retained = false;
+        try {
+            synchronized (auctionSystem) {
+                if (auctionSystem.containsAuctionId(request.auctionId)) {
+                    sendError(exchange, 409, "Auction ID already exists.");
                     return;
                 }
-                throw exception;
-            } catch (SQLException exception) {
-                if (isConstraintViolation(exception)) {
-                    sendError(exchange, 409,
-                            "The product, auction, or seller conflicts with existing database data.");
+                if (persistentAuctionStorage && auctionSystem.containsProductId(request.productId)) {
+                    sendError(exchange, 409, "Product ID already exists.");
                     return;
                 }
-                throw exception;
+                try {
+                    if (persistentAuctionStorage) {
+                        auction = new Auction(request.auctionId, product, seller,
+                                endTime, minimumBidIncrement);
+                        persistSellerAuction(product, auction);
+                    } else {
+                        auction = seller.createAuction(auctionSystem, request.auctionId, product,
+                                endTime, minimumBidIncrement);
+                        seller.listProduct(auctionSystem, product);
+                    }
+                } catch (IllegalArgumentException exception) {
+                    if ("Auction ID already exists.".equals(exception.getMessage())
+                            || "Product ID already exists.".equals(exception.getMessage())) {
+                        sendError(exchange, 409, exception.getMessage());
+                        return;
+                    }
+                    throw exception;
+                } catch (SQLException exception) {
+                    if (isConstraintViolation(exception)) {
+                        sendError(exchange, 409,
+                                "The product, auction, or seller conflicts with existing database data.");
+                        return;
+                    }
+                    throw exception;
+                }
+            }
+            retained = true;
+            sendJson(exchange, 201, "{\"success\":true,\"message\":"
+                    + jsonString("Auction created successfully.") + ",\"auction\":"
+                    + auctionToJson(auction) + "}");
+        } finally {
+            if (!retained) {
+                try {
+                    productImageStorage.delete(imageFilename);
+                } catch (IOException ignored) {
+                    // The failed request should still return its original error response.
+                }
             }
         }
-        sendJson(exchange, 201, "{\"success\":true,\"message\":"
-                + jsonString("Auction created successfully.") + ",\"auction\":"
-                + auctionToJson(auction) + "}");
     }
 
     /** Persists the product and auction atomically, then publishes them in memory. */
@@ -702,21 +878,84 @@ public class AuctionServer {
 
     private AuctionCreationRequest readAuctionCreationRequest(HttpExchange exchange)
             throws IOException {
-        String body = readRequestBody(exchange);
-        Matcher matcher = AUCTION_CREATION_REQUEST.matcher(body);
-        if (!matcher.matches()) {
-            throw new IllegalArgumentException(
-                    "Send auctionId, productId, productName, description, condition, endTime, and minimumBidIncrement as JSON fields.");
+        String contentType = exchange.getRequestHeaders().getFirst("Content-Type");
+        Matcher typeMatcher = Pattern.compile(
+                "(?i)^multipart/form-data\\s*;\\s*boundary=(?:\"([^\"]+)\"|([^;]+)).*$")
+                .matcher(contentType == null ? "" : contentType);
+        if (!typeMatcher.matches()) {
+            throw new IllegalArgumentException("Auction creation requires a product image upload.");
         }
-        String[] fields = new String[6];
-        for (int index = 0; index < fields.length; index++) {
-            fields[index] = decodeJsonString(matcher.group(index + 1)).trim();
-            if (fields[index].isEmpty()) {
+        String boundary = (typeMatcher.group(1) != null ? typeMatcher.group(1)
+                : typeMatcher.group(2).trim());
+        if (boundary.isEmpty() || boundary.length() > 200) {
+            throw new IllegalArgumentException("The product image upload request is malformed.");
+        }
+        byte[] body = readLimitedBody(exchange, MAX_MULTIPART_BYTES);
+        Map<String, String> fields = new HashMap<>();
+        byte[] imageBytes = null;
+        byte[] marker = ("--" + boundary).getBytes(StandardCharsets.ISO_8859_1);
+        byte[] headerSeparator = "\r\n\r\n".getBytes(StandardCharsets.ISO_8859_1);
+        byte[] nextPart = ("\r\n--" + boundary).getBytes(StandardCharsets.ISO_8859_1);
+        int position = 0;
+        boolean foundEnd = false;
+        while (position < body.length) {
+            if (!matchesAt(body, marker, position)) {
+                throw new IllegalArgumentException("The product image upload request is malformed.");
+            }
+            position += marker.length;
+            if (matchesAt(body, new byte[] {'-', '-'}, position)) {
+                foundEnd = true;
+                break;
+            }
+            if (!matchesAt(body, new byte[] {'\r', '\n'}, position)) {
+                throw new IllegalArgumentException("The product image upload request is malformed.");
+            }
+            position += 2;
+            int headersEnd = indexOf(body, headerSeparator, position);
+            if (headersEnd < 0) throw new IllegalArgumentException("The upload headers are malformed.");
+            String headers = new String(body, position, headersEnd - position,
+                    StandardCharsets.ISO_8859_1);
+            Matcher disposition = Pattern.compile(
+                    "(?i)content-disposition:[^\\r\\n]*\\bname=\"([^\"]+)\"")
+                    .matcher(headers);
+            if (!disposition.find()) throw new IllegalArgumentException("An upload field is missing its name.");
+            String fieldName = disposition.group(1);
+            Matcher filenameMatcher = Pattern.compile("(?i)\\bfilename=\"([^\"]*)\"")
+                    .matcher(headers);
+            boolean filePart = filenameMatcher.find();
+            int dataStart = headersEnd + headerSeparator.length;
+            int dataEnd = indexOf(body, nextPart, dataStart);
+            if (dataEnd < 0) throw new IllegalArgumentException("The upload body is incomplete.");
+            if ("productImage".equals(fieldName)) {
+                if (!filePart || imageBytes != null) {
+                    throw new IllegalArgumentException("Provide exactly one product image.");
+                }
+                imageBytes = Arrays.copyOfRange(body, dataStart, dataEnd);
+            } else {
+                if (filePart || fields.containsKey(fieldName)) {
+                    throw new IllegalArgumentException("The auction form contains a duplicate field.");
+                }
+                fields.put(fieldName, new String(body, dataStart, dataEnd - dataStart,
+                        StandardCharsets.UTF_8).trim());
+            }
+            position = dataEnd + 2;
+        }
+        if (!foundEnd || imageBytes == null) {
+            throw new IllegalArgumentException("Choose a product image before creating the auction.");
+        }
+        Set<String> expected = Set.of("auctionId", "productId", "productName", "description",
+                "condition", "endTime", "minimumBidIncrement");
+        if (!fields.keySet().equals(expected)) {
+            throw new IllegalArgumentException("Complete all auction and product fields.");
+        }
+        for (String field : expected) {
+            if (fields.get(field).isEmpty()) {
                 throw new IllegalArgumentException("All auction and product text fields are required.");
             }
         }
-        return new AuctionCreationRequest(fields[0], fields[1], fields[2], fields[3],
-                fields[4], fields[5], matcher.group(7));
+        return new AuctionCreationRequest(fields.get("auctionId"), fields.get("productId"),
+                fields.get("productName"), fields.get("description"), fields.get("condition"),
+                fields.get("endTime"), fields.get("minimumBidIncrement"), imageBytes);
     }
 
     private void sendAuction(HttpExchange exchange, String auctionId)
@@ -867,6 +1106,7 @@ public class AuctionServer {
 
     private String auctionToJson(Auction auction) {
         Product product = auction.getProduct();
+        Seller seller = auction.getSeller();
         Bid highestBid = auction.getHighestValidBid();
         Buyer winner = auction.getWinner();
         StringBuilder json = new StringBuilder("{")
@@ -876,12 +1116,15 @@ public class AuctionServer {
                 .append(",\"name\":").append(jsonString(product.getName()))
                 .append(",\"description\":").append(jsonString(product.getDescription()))
                 .append(",\"condition\":").append(jsonString(product.getCondition()))
+                .append(",\"imageUrl\":").append(jsonString(productImageUrl(product)))
                 .append("},\"currentHighestBid\":")
                 .append(highestBid == null ? "null" : bidToJson(highestBid))
                 .append(",\"minimumBidIncrement\":")
                 .append(Double.toString(auction.getMinimumBidIncrement()))
                 .append(",\"endTime\":").append(jsonString(auction.getEndTime().toString()))
                 .append(",\"status\":").append(jsonString(auction.getStatus()))
+                .append(",\"seller\":")
+                .append(seller == null ? "null" : userToJson(seller))
                 .append(",\"winner\":").append(winner == null ? "null" : userToJson(winner))
                 .append(",\"bids\":[");
 
@@ -893,6 +1136,11 @@ public class AuctionServer {
             json.append(bidToJson(bids.get(index)));
         }
         return json.append("]}").toString();
+    }
+
+    private String productImageUrl(Product product) {
+        return product.getImagePath() == null ? null
+                : "/api/products/images/" + product.getImagePath();
     }
 
     private String bidToJson(Bid bid) {
@@ -965,6 +1213,11 @@ public class AuctionServer {
     private void sendError(HttpExchange exchange, int status, String message) throws IOException {
         sendJson(exchange, status, "{\"success\":false,\"message\":"
                 + jsonString(message) + "}");
+    }
+
+    private void logServerError(String context, Exception exception) {
+        System.err.println(context + ": " + exception.getMessage());
+        exception.printStackTrace(System.err);
     }
 
     private void sendJson(HttpExchange exchange, int status, String json) throws IOException {
@@ -1041,9 +1294,11 @@ public class AuctionServer {
         private final String condition;
         private final String endTime;
         private final String minimumBidIncrement;
+        private final byte[] imageBytes;
 
         private AuctionCreationRequest(String auctionId, String productId, String productName,
-                String description, String condition, String endTime, String minimumBidIncrement) {
+                String description, String condition, String endTime, String minimumBidIncrement,
+                byte[] imageBytes) {
             this.auctionId = auctionId;
             this.productId = productId;
             this.productName = productName;
@@ -1051,6 +1306,7 @@ public class AuctionServer {
             this.condition = condition;
             this.endTime = endTime;
             this.minimumBidIncrement = minimumBidIncrement;
+            this.imageBytes = imageBytes;
         }
     }
 
