@@ -3,10 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="#10243f">
-    <meta name="description" content="Browse live auctions, follow bids, and discover products in the Online Auction Simulator.">
-    <title>Online Auction Simulator</title>
+    <meta name="theme-color" content="#ffffff">
+    <meta name="description" content="Browse live auctions, follow real-time bids, and discover products in the Online Auction Simulator.">
+    <title>Online Auction Simulator · Premium Live Marketplace</title>
     <link rel="stylesheet" href="css/style.css">
+    <script src="js/theme.js"></script>
     <script src="js/app.js" defer></script>
 </head>
 <body data-page="dashboard" class="auth-pending">
@@ -14,39 +15,108 @@
         <div class="header-inner">
             <a class="brand" href="#top" aria-label="Online Auction Simulator home">
                 <span class="brand-mark" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                        <path d="m14.2 4.3 5.5 5.5M10.7 7.8l5.5 5.5M8.3 10.2l5.5 5.5M4.8 13.7l5.5 5.5M3 21h18M12.5 3l8.5 8.5-3.2 3.2L9.3 6.2 12.5 3Z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="m14.5 4.5 5 5-3 3-5-5 3-3Z"/>
+                        <path d="m9.5 9.5 5 5"/>
+                        <path d="m7 12 5 5"/>
+                        <path d="m4.5 14.5 5 5"/>
+                        <path d="M2.5 21.5h19"/>
+                        <path d="M12.5 2.5 21.5 11.5l-3 3-9-9 3-3Z"/>
                     </svg>
                 </span>
-                <span class="brand-name">Online Auction Simulator</span>
+                <span class="brand-name">
+                    <span>Auction</span>Simulator
+                </span>
             </a>
-            <nav aria-label="Main navigation">
-                <a class="nav-link" href="#auctions">Auctions</a>
-                <a class="nav-link" href="#account-section">My account</a>
+
+            <nav class="header-nav" aria-label="Main navigation">
+                <a class="nav-link" href="#auctions">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <rect x="2" y="7" width="20" height="14" rx="2" ry="2"/>
+                        <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>
+                    </svg>
+                    <span>Auctions</span>
+                </a>
+                <a class="nav-link" href="#account-section">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/>
+                        <circle cx="12" cy="7" r="4"/>
+                    </svg>
+                    <span>My account</span>
+                </a>
                 <span id="api-status" class="api-status" role="status" aria-live="polite">
                     <span class="status-dot" aria-hidden="true"></span>
-                    Checking API…
+                    <span class="status-text">Checking API…</span>
                 </span>
             </nav>
-            <div id="logged-in-panel" class="profile-menu header-account" hidden>
-                <button id="profile-menu-trigger" class="profile-menu-trigger" type="button"
-                        aria-expanded="false" aria-controls="profile-menu-dropdown">
-                    <span id="profile-avatar" class="profile-avatar" aria-hidden="true">U</span>
-                    <span class="profile-menu-identity">
-                        <strong id="logged-in-name"></strong>
-                        <span id="logged-in-role"></span>
+
+            <div class="header-actions">
+                <button id="theme-toggle" class="theme-toggle-btn" type="button" aria-label="Toggle theme" title="Toggle theme">
+                    <span class="theme-icon-sun" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="5"></circle>
+                            <line x1="12" y1="1" x2="12" y2="3"></line>
+                            <line x1="12" y1="21" x2="12" y2="23"></line>
+                            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                            <line x1="1" y1="12" x2="3" y2="12"></line>
+                            <line x1="21" y1="12" x2="23" y2="12"></line>
+                            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+                        </svg>
                     </span>
-                    <span class="profile-menu-chevron" aria-hidden="true">⌄</span>
+                    <span class="theme-icon-moon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                        </svg>
+                    </span>
                 </button>
-                <div id="profile-menu-dropdown" class="profile-menu-dropdown" hidden>
-                    <div class="profile-menu-summary">
-                        <span class="eyebrow">Signed in account</span>
-                        <span id="logged-in-id"></span>
+
+                <div id="logged-in-panel" class="profile-menu header-account" hidden>
+                    <button id="profile-menu-trigger" class="profile-menu-trigger" type="button"
+                            aria-expanded="false" aria-controls="profile-menu-dropdown">
+                        <span id="profile-avatar" class="profile-avatar" aria-hidden="true">U</span>
+                        <span class="profile-menu-identity">
+                            <strong id="logged-in-name"></strong>
+                            <span id="logged-in-role"></span>
+                        </span>
+                        <span class="profile-menu-chevron" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="6 9 12 15 18 9"/>
+                            </svg>
+                        </span>
+                    </button>
+                    <div id="profile-menu-dropdown" class="profile-menu-dropdown" hidden>
+                        <div class="profile-menu-summary">
+                            <span class="eyebrow">Signed in account</span>
+                            <span id="logged-in-id"></span>
+                        </div>
+                        <div class="profile-menu-links">
+                            <a id="view-profile-button" class="profile-menu-item" href="profile.html">
+                                <svg class="menu-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                                    <circle cx="12" cy="7" r="4"/>
+                                </svg>
+                                <span>View profile</span>
+                            </a>
+                            <a id="edit-profile-button" class="profile-menu-item" href="profile.html?edit=1">
+                                <svg class="menu-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M12 20h9"/>
+                                    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+                                </svg>
+                                <span>Edit profile</span>
+                            </a>
+                        </div>
+                        <div class="profile-menu-divider"></div>
+                        <button id="logout-button" class="profile-menu-item logout-menu-item" type="button">
+                            <svg class="menu-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                                <polyline points="16 17 21 12 16 7"/>
+                                <line x1="21" y1="12" x2="9" y2="12"/>
+                            </svg>
+                            <span>Log out</span>
+                        </button>
                     </div>
-                    <a id="view-profile-button" class="profile-menu-item" href="profile.html">View profile</a>
-                    <a id="edit-profile-button" class="profile-menu-item" href="profile.html?edit=1">Edit profile</a>
-                    <div class="profile-menu-divider"></div>
-                    <button id="logout-button" class="profile-menu-item logout-menu-item" type="button">Log out</button>
                 </div>
             </div>
         </div>
@@ -54,45 +124,90 @@
 
     <main id="top">
         <section class="hero" aria-labelledby="page-title">
-            <div class="hero-copy">
-                <p class="eyebrow">Curated finds. Competitive bidding.</p>
-                <h1 id="page-title">Find something<br>worth bidding on.</h1>
-                <p class="hero-description">Explore current listings, follow every bid, and see auction updates as they happen.</p>
-                <a class="primary-link" href="#auctions">Explore auctions <span aria-hidden="true">→</span></a>
-            </div>
-            <div class="hero-note" aria-label="Auction data source">
-                <span class="note-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8m0-12.8L5.6 18.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
-                </span>
-                <p>Marketplace status<br><strong>Live auction listings</strong></p>
+            <div class="hero-content">
+                <div class="hero-copy">
+                    <div class="hero-pill">
+                        <span class="hero-pill-indicator"></span>
+                        <span>Live Multi-Role Bidding Engine</span>
+                    </div>
+                    <h1 id="page-title">Discover, bid, and win<br><span class="hero-highlight">rare collectibles.</span></h1>
+                    <p class="hero-description">Experience lightning-fast auctions with automated polling, real-time bid verification, and robust multi-buyer synchronization.</p>
+                    <div class="hero-actions">
+                        <a class="primary-link" href="#auctions">
+                            <span>Explore live auctions</span>
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <line x1="5" y1="12" x2="19" y2="12"/>
+                                <polyline points="12 5 19 12 12 19"/>
+                            </svg>
+                        </a>
+                        <a class="secondary-link" href="#account-section">My activity</a>
+                    </div>
+                </div>
+
+                <div class="hero-stats-card" aria-label="Marketplace status">
+                    <div class="stats-card-header">
+                        <span class="stats-badge">Live System</span>
+                        <div class="pulse-indicator">
+                            <span class="pulse-ring"></span>
+                            <span class="pulse-core"></span>
+                        </div>
+                    </div>
+                    <div class="stats-metric">
+                        <span class="stats-label">Real-Time Engine</span>
+                        <strong class="stats-value">Instant Polling</strong>
+                    </div>
+                    <div class="stats-divider"></div>
+                    <div class="stats-meta">
+                        <div class="stats-meta-item">
+                            <span class="meta-label">Backend</span>
+                            <span class="meta-val">Java REST API</span>
+                        </div>
+                        <div class="stats-meta-item">
+                            <span class="meta-label">Storage</span>
+                            <span class="meta-val">MySQL Persistence</span>
+                        </div>
+                    </div>
+                </div>
             </div>
         </section>
 
         <section id="account-section" class="account-section" aria-labelledby="account-heading">
             <h2 id="account-heading" class="visually-hidden">My account</h2>
+
             <section id="profile-panel" class="profile-panel" aria-labelledby="profile-heading" hidden>
-                <h3 id="profile-heading">My profile</h3>
+                <div class="panel-header">
+                    <div>
+                        <span class="eyebrow">Account Overview</span>
+                        <h3 id="profile-heading">My profile</h3>
+                    </div>
+                </div>
                 <dl class="profile-details">
                     <div><dt>User ID</dt><dd id="profile-user-id"></dd></div>
-                    <div><dt>Name</dt><dd id="profile-name"></dd></div>
-                    <div><dt>Email</dt><dd id="profile-email"></dd></div>
-                    <div><dt>Role</dt><dd id="profile-role"></dd></div>
+                    <div><dt>Full Name</dt><dd id="profile-name"></dd></div>
+                    <div><dt>Email Address</dt><dd id="profile-email"></dd></div>
+                    <div><dt>Account Role</dt><dd id="profile-role" class="role-badge"></dd></div>
                 </dl>
                 <div id="profile-message" class="account-message" role="status" aria-live="polite" hidden></div>
             </section>
+
             <form id="profile-form" class="account-form profile-form" hidden>
-                <h3>Edit profile</h3>
+                <div class="panel-header">
+                    <div>
+                        <span class="eyebrow">Modify Account</span>
+                        <h3>Edit profile</h3>
+                    </div>
+                </div>
                 <label>
-                    <span>Name</span>
-                    <input id="profile-edit-name" name="name" type="text" autocomplete="name" required>
+                    <span class="input-label">Full Name</span>
+                    <input id="profile-edit-name" name="name" type="text" autocomplete="name" required placeholder="Enter full name">
                 </label>
                 <label>
-                    <span>Email</span>
-                    <input id="profile-edit-email" name="email" type="email" autocomplete="email" required>
+                    <span class="input-label">Email Address</span>
+                    <input id="profile-edit-email" name="email" type="email" autocomplete="email" required placeholder="name@example.com">
                 </label>
-                <label>
-                    <span>New password <small>(leave blank to keep current password)</small></span>
-                    <input id="profile-edit-password" name="password" type="password" autocomplete="new-password">
+                <label class="full-width-field">
+                    <span class="input-label">New Password <small>(leave blank to retain current password)</small></span>
+                    <input id="profile-edit-password" name="password" type="password" autocomplete="new-password" placeholder="••••••••">
                 </label>
                 <div class="account-form-actions">
                     <button id="save-profile-button" class="submit-button" type="submit">Save changes</button>
@@ -100,87 +215,139 @@
                 </div>
                 <div id="profile-edit-message" class="account-message" role="status" aria-live="polite" hidden></div>
             </form>
+
             <section id="seller-auctions-panel" class="profile-panel user-auctions-panel"
                      aria-labelledby="seller-auctions-heading" hidden>
-                <h3 id="seller-auctions-heading">My auctions</h3>
+                <div class="section-heading">
+                    <div>
+                        <span class="eyebrow">Seller Portfolio</span>
+                        <h3 id="seller-auctions-heading">My auctions</h3>
+                    </div>
+                </div>
                 <div id="seller-auctions-list" class="user-auctions-list"></div>
-                <p id="seller-auctions-empty" class="form-note" hidden>You have not created any auctions yet.</p>
+                <div id="seller-auctions-empty" class="empty-state-box" hidden>
+                    <div class="empty-icon-wrap" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="2" y="7" width="20" height="14" rx="2" ry="2"/>
+                            <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>
+                        </svg>
+                    </div>
+                    <h4>No active listings</h4>
+                    <p class="form-note">You have not created any auctions yet. Use the tool below to list an item.</p>
+                </div>
                 <p id="seller-auctions-error" class="account-message error" role="status" hidden>
                     Your auctions could not be loaded. Please try again.
                 </p>
             </section>
+
             <section id="buyer-bids-panel" class="profile-panel user-auctions-panel"
                      aria-labelledby="buyer-bids-heading" hidden>
-                <h3 id="buyer-bids-heading">My bids</h3>
+                <div class="section-heading">
+                    <div>
+                        <span class="eyebrow">Bidding History</span>
+                        <h3 id="buyer-bids-heading">My bids</h3>
+                    </div>
+                </div>
                 <div id="buyer-bids-list" class="user-auctions-list"></div>
-                <p id="buyer-bids-empty" class="form-note" hidden>You have not placed any bids yet.</p>
+                <div id="buyer-bids-empty" class="empty-state-box" hidden>
+                    <div class="empty-icon-wrap" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10"/>
+                            <polyline points="12 6 12 12 16 14"/>
+                        </svg>
+                    </div>
+                    <h4>No bids placed yet</h4>
+                    <p class="form-note">You haven't participated in any auctions yet. Browse active listings below to get started.</p>
+                </div>
                 <p id="buyer-bids-error" class="account-message error" role="status" hidden>
                     Your bidding history could not be loaded. Please try again.
                 </p>
             </section>
+
             <section id="seller-dashboard" class="profile-panel seller-dashboard"
                      aria-labelledby="seller-dashboard-heading" hidden>
                 <div class="section-heading">
                     <div>
-                        <p class="eyebrow">Seller tools</p>
+                        <span class="eyebrow">Seller Operations</span>
                         <h3 id="seller-dashboard-heading">Create an auction</h3>
                     </div>
-                    <button id="show-create-auction-button" class="button" type="button">
-                        Create auction
+                    <button id="show-create-auction-button" class="button primary-action-btn" type="button">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <line x1="12" y1="5" x2="12" y2="19"/>
+                            <line x1="5" y1="12" x2="19" y2="12"/>
+                        </svg>
+                        <span>Create auction</span>
                     </button>
                 </div>
-                <p class="form-note">Auction and product details are saved by the Java API to MySQL.</p>
-                <form id="create-auction-form" class="account-form" hidden>
+                <p class="form-note">Create new catalog items and initiate competitive bidding with automated closure controls.</p>
+
+                <form id="create-auction-form" class="account-form create-auction-grid" hidden>
                     <label>
-                        <span>Auction ID</span>
-                        <input id="create-auction-id" name="auctionId" type="text" required>
+                        <span class="input-label">Auction ID</span>
+                        <input id="create-auction-id" name="auctionId" type="text" required placeholder="e.g. AUC-1001">
                     </label>
                     <label>
-                        <span>Product ID</span>
-                        <input id="create-product-id" name="productId" type="text" required>
+                        <span class="input-label">Product ID</span>
+                        <input id="create-product-id" name="productId" type="text" required placeholder="e.g. PRD-501">
+                    </label>
+                    <label class="full-width-field">
+                        <span class="input-label">Product Name</span>
+                        <input id="create-product-name" name="productName" type="text" required placeholder="e.g. Vintage Mechanical Chronograph">
+                    </label>
+                    <label class="full-width-field">
+                        <span class="input-label">Product Description</span>
+                        <textarea id="create-product-description" name="description" rows="3" required placeholder="Provide condition details, provenance, and specifications…"></textarea>
                     </label>
                     <label>
-                        <span>Product name</span>
-                        <input id="create-product-name" name="productName" type="text" required>
-                    </label>
-                    <label>
-                        <span>Description</span>
-                        <textarea id="create-product-description" name="description" rows="3" required></textarea>
-                    </label>
-                    <label>
-                        <span>Product Condition</span>
+                        <span class="input-label">Product Condition</span>
                         <select id="create-product-condition" name="condition" required>
-                            <option value="" selected disabled>Select a condition</option>
+                            <option value="" selected disabled>Select condition</option>
                             <option value="Poor">Poor</option>
                             <option value="Average">Average</option>
                             <option value="Good">Good</option>
                             <option value="Excellent">Excellent</option>
                         </select>
                     </label>
-                    <label class="image-upload-field">
-                        <span>Product Image</span>
-                        <input id="create-product-image" name="productImage" type="file"
-                               accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" required>
-                        <small>JPG, JPEG, PNG, or WEBP · Maximum 5 MB. Select another file to replace it.</small>
-                        <span id="create-product-image-filename" class="selected-file-name" hidden></span>
-                        <img id="create-product-image-preview" class="product-image-preview"
-                             alt="Selected product preview" hidden>
-                        <button id="remove-product-image-button" class="text-button" type="button" hidden>
-                            Remove image
-                        </button>
-                    </label>
                     <label>
-                        <span>Auction end time</span>
+                        <span class="input-label">Minimum Bid Increment ($)</span>
+                        <input id="create-auction-increment" name="minimumBidIncrement"
+                               type="number" min="0" step="any" required placeholder="e.g. 25.00">
+                    </label>
+                    <label class="full-width-field">
+                        <span class="input-label">Auction End Time</span>
                         <input id="create-auction-end-time" name="endTime" type="datetime-local" required>
                     </label>
-                    <label>
-                        <span>Minimum bid increment</span>
-                        <input id="create-auction-increment" name="minimumBidIncrement"
-                               type="number" min="0" step="any" required>
+                    <label class="image-upload-field full-width-field">
+                        <span class="input-label">Product Photograph</span>
+                        <div class="file-dropzone">
+                            <svg class="dropzone-icon" viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                                <circle cx="8.5" cy="8.5" r="1.5"/>
+                                <polyline points="21 15 16 10 5 21"/>
+                            </svg>
+                            <div class="dropzone-text">
+                                <span class="dropzone-cta">Select photo to upload</span>
+                                <small>JPG, JPEG, PNG, or WEBP (Max 5 MB)</small>
+                            </div>
+                            <input id="create-product-image" name="productImage" type="file"
+                                   accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" required>
+                        </div>
+                        <div class="preview-wrap">
+                            <span id="create-product-image-filename" class="selected-file-name" hidden></span>
+                            <img id="create-product-image-preview" class="product-image-preview"
+                                 alt="Selected product preview" hidden>
+                            <button id="remove-product-image-button" class="text-button remove-btn" type="button" hidden>
+                                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <line x1="18" y1="6" x2="6" y2="18"/>
+                                    <line x1="6" y1="6" x2="18" y2="18"/>
+                                </svg>
+                                <span>Remove image</span>
+                            </button>
+                        </div>
                     </label>
-                    <div class="account-form-actions">
+                    <div class="account-form-actions full-width-field">
                         <button id="create-auction-submit" class="submit-button" type="submit">
-                            Create auction
+                            Publish auction
                         </button>
                         <button id="cancel-create-auction-button" class="text-button" type="button">
                             Cancel
@@ -195,29 +362,38 @@
         <section id="auctions" class="auction-section" aria-labelledby="auction-heading">
             <div class="section-heading">
                 <div>
-                    <p class="eyebrow">Explore what is available</p>
+                    <span class="eyebrow">Live Marketplace</span>
                     <h2 id="auction-heading">Current auctions</h2>
                 </div>
-                <span id="auction-count" class="auction-count"></span>
+                <div class="auction-count-badge">
+                    <span id="auction-count" class="auction-count"></span>
+                </div>
             </div>
 
             <div id="page-message" class="message" role="status" aria-live="polite" hidden></div>
+
             <div class="auction-controls" aria-label="Search, filter, and sort auctions">
-                <label>
-                    <span>Search by product name</span>
-                    <input id="auction-search" type="search" autocomplete="off"
-                           placeholder="Search auctions">
-                </label>
-                <label>
-                    <span>Status</span>
+                <div class="search-input-wrap">
+                    <svg class="search-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <circle cx="11" cy="11" r="8"/>
+                        <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                    </svg>
+                    <label class="control-label">
+                        <span class="visually-hidden">Search by product name</span>
+                        <input id="auction-search" type="search" autocomplete="off"
+                               placeholder="Search auctions by product name…">
+                    </label>
+                </div>
+                <label class="control-label">
+                    <span class="control-title">Status</span>
                     <select id="auction-status-filter">
                         <option value="all">All auctions</option>
-                        <option value="active">Active</option>
+                        <option value="active">Active only</option>
                         <option value="ended">Closed or expired</option>
                     </select>
                 </label>
-                <label>
-                    <span>Condition</span>
+                <label class="control-label">
+                    <span class="control-title">Condition</span>
                     <select id="auction-condition-filter">
                         <option value="all">All conditions</option>
                         <option value="poor">Poor</option>
@@ -226,48 +402,72 @@
                         <option value="excellent">Excellent</option>
                     </select>
                 </label>
-                <label>
-                    <span>Sort by</span>
+                <label class="control-label">
+                    <span class="control-title">Sort by</span>
                     <select id="auction-sort">
-                        <option value="ending-soon">Ending soon</option>
+                        <option value="ending-soon">Ending soonest</option>
                         <option value="highest-bid">Highest bid</option>
                         <option value="lowest-bid">Lowest bid</option>
                     </select>
                 </label>
             </div>
+
             <div id="auction-list" class="auction-grid" aria-live="polite"></div>
         </section>
 
         <section id="auction-details" class="details-section" aria-labelledby="details-heading" hidden>
-            <div class="section-heading">
+            <div class="details-header-bar">
                 <div>
-                    <p class="eyebrow">Auction information</p>
+                    <span class="eyebrow">Real-Time Room</span>
                     <h2 id="details-heading">Auction details</h2>
                 </div>
-                <button id="close-details" class="text-button" type="button">Close details</button>
+                <div class="details-header-actions">
+                    <div class="live-toolbar" aria-live="polite">
+                        <span id="live-update-status" class="live-update-status">Live updates: OFF</span>
+                        <span id="last-updated" class="last-updated">Last updated: —</span>
+                    </div>
+                    <button id="close-details" class="close-details-btn" type="button" aria-label="Close auction details">
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <line x1="18" y1="6" x2="6" y2="18"/>
+                            <line x1="6" y1="6" x2="18" y2="18"/>
+                        </svg>
+                        <span>Close</span>
+                    </button>
+                </div>
             </div>
-            <div class="live-toolbar" aria-live="polite">
-                <span id="live-update-status" class="live-update-status">Live updates: OFF</span>
-                <span id="last-updated" class="last-updated">Last updated: —</span>
-            </div>
+
             <div id="details-content" class="details-card"></div>
+
             <form id="bid-form" class="bid-form" hidden>
                 <div class="bid-form-heading">
                     <div>
-                        <p class="eyebrow">Take part in this auction</p>
-                        <h3>Place a bid</h3>
+                        <span class="eyebrow">Buyer Action</span>
+                        <h3>Place your bid</h3>
                     </div>
                     <span id="bid-role-message" class="demo-label" hidden></span>
                 </div>
                 <p id="bid-access-message" class="form-note"></p>
                 <div class="form-fields">
-                    <span id="bid-account" class="bid-account"></span>
-                    <label>
-                        <span>Bid amount</span>
+                    <div class="bid-identity-box">
+                        <span class="bid-id-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/>
+                                <circle cx="12" cy="7" r="4"/>
+                            </svg>
+                        </span>
+                        <span id="bid-account" class="bid-account"></span>
+                    </div>
+                    <label class="bid-input-wrap">
+                        <span class="input-label">Bid amount ($)</span>
                         <input id="bid-amount" name="amount" type="text" inputmode="decimal"
-                               autocomplete="off" required>
+                               autocomplete="off" required placeholder="0.00">
                     </label>
-                    <button id="place-bid-button" class="submit-button" type="submit">Place bid</button>
+                    <button id="place-bid-button" class="submit-button bid-submit-btn" type="submit">
+                        <span>Place bid</span>
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <polyline points="9 18 15 12 9 6"/>
+                        </svg>
+                    </button>
                 </div>
                 <div id="bid-message" class="bid-message" role="status" aria-live="polite" hidden></div>
             </form>
@@ -275,8 +475,21 @@
     </main>
 
     <footer class="site-footer">
-        <span>Online Auction Simulator</span>
-        <span>Student project · Auction data provided by the Java API</span>
+        <div class="footer-inner">
+            <div class="footer-brand">
+                <span class="brand-mark small-mark" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="m14.5 4.5 5 5-3 3-5-5 3-3Z"/>
+                        <path d="M2.5 21.5h19"/>
+                    </svg>
+                </span>
+                <span>Online Auction Simulator</span>
+            </div>
+            <div class="footer-meta">
+                <span>Java Enterprise Architecture · Multi-threaded Polling</span>
+                <span>REST API & MySQL Synchronized</span>
+            </div>
+        </div>
     </footer>
 </body>
 </html>

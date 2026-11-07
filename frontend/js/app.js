@@ -826,10 +826,11 @@ function createElement(tag, className, text) {
     return element;
 }
 
-function addFact(container, label, value) {
+function addFact(container, label, value, valueClass = '') {
     const fact = createElement('div');
     fact.append(createElement('span', 'fact-label', label));
-    fact.append(createElement('span', 'fact-value', value));
+    const valueSpan = createElement('span', 'fact-value' + (valueClass ? ' ' + valueClass : ''), value);
+    fact.append(valueSpan);
     container.append(fact);
 }
 
@@ -1130,9 +1131,15 @@ function renderMyBid(entry) {
     addFact(facts, 'Your highest bid', formatAmount(entry.myHighestBid && entry.myHighestBid.amount));
     addFact(facts, 'Current highest bid', formatAmount(getHighestBidAmount(auction)));
     addFact(facts, 'Auction ends', formatDate(auction.endTime));
+    let positionClass = '';
+    if (ended) {
+        positionClass = buyerWon ? 'position-pill position-won' : 'position-pill position-lost';
+    } else {
+        positionClass = buyerIsLeading ? 'position-pill position-leading' : 'position-pill position-trailing';
+    }
     addFact(facts, 'Your position', ended
         ? (buyerWon ? 'You won' : 'You lost')
-        : (buyerIsLeading ? 'Currently leading' : 'Not currently leading'));
+        : (buyerIsLeading ? 'Currently leading' : 'Not currently leading'), positionClass);
     card.append(facts);
 
     const actions = createElement('div', 'card-actions');
