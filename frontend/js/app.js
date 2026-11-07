@@ -88,6 +88,7 @@ let auctionListLoadPromise = null;
 let pollingAuctionId = null;
 let pollRequestInProgress = false;
 let selectedEndTime = null;
+let selectedAuctionManuallyClosed = false;
 let currentUser = null;
 let authenticationRequestInProgress = false;
 let profileRequestInProgress = false;
@@ -101,6 +102,9 @@ let allAuctions = [];
 let roleDashboardRequestInProgress = false;
 let selectedProductPreviewUrl = null;
 let auctionClosureInProgress = false;
+let lastAuctionListRenderKey = null;
+let lastSellerAuctionRenderKey = null;
+let lastBuyerBidRenderKey = null;
 
 if (isLoginPage) {
     loginForm.addEventListener('submit', submitLogin);
@@ -116,6 +120,7 @@ document.querySelector('#close-details').addEventListener('click', () => {
     detailsSection.hidden = true;
     selectedAuctionId = null;
     selectedEndTime = null;
+    selectedAuctionManuallyClosed = false;
     stopAuctionPolling();
 });
 
@@ -376,6 +381,9 @@ function updateAuthenticationUI() {
         sellerAuctionMessage.hidden = true;
         sellerAuctionsList.replaceChildren();
         buyerBidsList.replaceChildren();
+        lastAuctionListRenderKey = null;
+        lastSellerAuctionRenderKey = null;
+        lastBuyerBidRenderKey = null;
         sellerAuctionsEmpty.hidden = true;
         sellerAuctionsError.hidden = true;
         buyerBidsEmpty.hidden = true;
@@ -830,11 +838,17 @@ function getHighestBidAmount(auction) {
     return highest && typeof highest.amount === 'number' ? highest.amount : null;
 }
 
+function isManuallyEndedStatus(status) {
+    const normalized = String(status || '').toLowerCase();
+    return normalized === 'manually closed' || normalized === 'manually expired';
+}
+
 function getAuctionStatusDisplay(status) {
     const normalized = String(status || '').toLowerCase();
     if (normalized === 'open') return { label: 'Active', className: 'open' };
     if (normalized === 'expired') return { label: 'Expired', className: 'expired' };
-    if (normalized.includes('closed')) return { label: 'Closed', className: 'closed' };
+    if (isManuallyEndedStatus(normalized)) return { label: 'Auction Ended', className: 'closed' };
+    if (normalized.includes('closed')) return { label: 'Auction Ended', className: 'closed' };
     return { label: displayValue(status, 'Unknown'), className: 'unknown' };
 }
 
@@ -927,15 +941,18 @@ async function endAuction(auctionId) {
     try {
         const result = await fetchAuthenticatedJson(
             `${API_BASE_URL}/auctions/${encodeURIComponent(auctionId)}/close`, { method: 'POST' });
-        await loadAuctions();
-        await loadRoleDashboard();
         if (String(selectedAuctionId) === String(auctionId)) {
-            const data = await fetchJson(`${API_BASE_URL}/auctions/${encodeURIComponent(auctionId)}`);
-            if (data.auction) {
-                renderDetails(data.auction);
+            if (result.auction) {
+                renderDetails(result.auction);
                 noteAuctionUpdated();
+            } else {
+                selectedAuctionManuallyClosed = true;
+                updateCountdown();
+                stopAuctionPolling();
             }
         }
+        await loadAuctions();
+        await loadRoleDashboard();
         showMessage(result.message || 'Auction ended successfully.', 'success');
     } catch (error) {
         showMessage(friendlyApiError(error, 'auction-close'), 'error');
@@ -989,6 +1006,14 @@ function renderFilteredAuctions() {
         sorted.sort((first, second) => getEndTimestamp(first) - getEndTimestamp(second));
     }
 
+    const renderKey = JSON.stringify({
+        search, statusFilter, conditionFilter, sortBy,
+        auctions: sorted.map(getAuctionCardRenderState)
+    });
+    if (renderKey === lastAuctionListRenderKey
+            && auctionList.childElementCount === sorted.length) return;
+    lastAuctionListRenderKey = renderKey;
+
     auctionList.replaceChildren();
     auctionCount.textContent = sorted.length === allAuctions.length
         ? `${allAuctions.length} ${allAuctions.length === 1 ? 'auction' : 'auctions'}`
@@ -1002,6 +1027,20 @@ function renderFilteredAuctions() {
 
     hideMessage();
     sorted.forEach((auction) => auctionList.append(renderAuction(auction)));
+}
+
+function getAuctionCardRenderState(auction) {
+    const product = auction.product || {};
+    const highestBid = auction.currentHighestBid;
+    const winner = auction.winner;
+    const seller = auction.seller;
+    return [auction.auctionId, product.productId, product.name, product.description,
+        product.condition, product.imageUrl, auction.status, auction.endTime,
+        auction.minimumBidIncrement,
+        highestBid && [highestBid.buyerId, highestBid.buyerName, highestBid.amount],
+        winner && [winner.userId, winner.name], seller && seller.userId,
+        Boolean(isLoggedInSeller() && seller
+            && String(seller.userId) === String(currentUser.userId))];
 }
 
 function getEndTimestamp(auction) {
@@ -1025,9 +1064,15 @@ async function loadRoleDashboard() {
             if (!currentUser || String(currentUser.userId) !== requestedUserId
                     || !isLoggedInSeller()) return;
             if (!Array.isArray(data.auctions)) throw new Error('Unexpected seller auction data.');
-            sellerAuctionsList.replaceChildren();
+            const renderKey = JSON.stringify([requestedUserId,
+                data.auctions.map(getAuctionCardRenderState)]);
+            if (renderKey !== lastSellerAuctionRenderKey
+                    || sellerAuctionsList.childElementCount !== data.auctions.length) {
+                sellerAuctionsList.replaceChildren();
+                data.auctions.forEach((auction) => sellerAuctionsList.append(renderAuction(auction)));
+                lastSellerAuctionRenderKey = renderKey;
+            }
             sellerAuctionsEmpty.hidden = data.auctions.length !== 0;
-            data.auctions.forEach((auction) => sellerAuctionsList.append(renderAuction(auction)));
         } else {
             buyerBidsError.hidden = true;
             buyerBidsEmpty.hidden = true;
@@ -1035,9 +1080,19 @@ async function loadRoleDashboard() {
             if (!currentUser || String(currentUser.userId) !== requestedUserId
                     || !isLoggedInBuyer()) return;
             if (!Array.isArray(data.auctions)) throw new Error('Unexpected buyer bid data.');
-            buyerBidsList.replaceChildren();
+            const renderKey = JSON.stringify([requestedUserId, data.auctions.map((entry) => [
+                getAuctionCardRenderState(entry.auction || {}),
+                entry.myHighestBid && [entry.myHighestBid.buyerId,
+                    entry.myHighestBid.buyerName, entry.myHighestBid.amount,
+                    entry.myHighestBid.timestamp]
+            ])]);
+            if (renderKey !== lastBuyerBidRenderKey
+                    || buyerBidsList.childElementCount !== data.auctions.length) {
+                buyerBidsList.replaceChildren();
+                data.auctions.forEach((entry) => buyerBidsList.append(renderMyBid(entry)));
+                lastBuyerBidRenderKey = renderKey;
+            }
             buyerBidsEmpty.hidden = data.auctions.length !== 0;
-            data.auctions.forEach((entry) => buyerBidsList.append(renderMyBid(entry)));
         }
     } catch (error) {
         if (!error || error.status !== 401) {
@@ -1142,6 +1197,7 @@ function renderBidHistory(bids) {
 function renderDetails(auction, shouldScroll = false) {
     const product = auction.product || {};
     const highestBid = auction.currentHighestBid;
+    selectedAuctionManuallyClosed = isManuallyEndedStatus(auction.status);
     selectedEndTime = auction.endTime || null;
     detailsContent.replaceChildren();
     addProductImage(detailsContent, product, true);
@@ -1157,17 +1213,19 @@ function renderDetails(auction, shouldScroll = false) {
         highestBid && highestBid.buyerName ? highestBid.buyerName : null, 'No bids yet'));
     appendDetail(facts, 'Minimum bid increment', formatAmount(auction.minimumBidIncrement));
     appendDetail(facts, 'Ends', formatDate(auction.endTime));
-    const countdown = appendDetail(facts, 'Time remaining', formatCountdown(selectedEndTime));
+    const countdown = appendDetail(facts, 'Time remaining', selectedAuctionManuallyClosed
+        ? 'Auction Ended' : formatCountdown(selectedEndTime));
     countdown.id = 'auction-countdown';
     countdown.className = 'countdown-value';
-    appendDetail(facts, 'Status', displayValue(auction.status));
+    appendDetail(facts, 'Status', getAuctionStatusDisplay(auction.status).label);
     appendDetail(facts, 'Winner', auction.winner && auction.winner.name
         ? auction.winner.name : 'Not determined');
     detailsContent.append(facts);
     detailsContent.append(renderBidHistory(auction.bids));
     detailsSection.hidden = false;
     if (shouldScroll) detailsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    updateCountdown();
+    if (selectedAuctionManuallyClosed) stopAuctionPolling();
+    else updateCountdown();
 }
 
 async function loadAuctionDetails(auctionId) {
@@ -1181,6 +1239,7 @@ async function loadAuctionDetails(auctionId) {
     }
     stopAuctionPolling();
     selectedAuctionId = String(auctionId);
+    selectedAuctionManuallyClosed = false;
     clearBidMessage();
     bidForm.hidden = true;
     detailsContent.replaceChildren();
@@ -1218,7 +1277,12 @@ function noteAuctionUpdated() {
 
 function updateCountdown() {
     const countdown = detailsContent.querySelector('#auction-countdown');
-    if (countdown && selectedEndTime) countdown.textContent = formatCountdown(selectedEndTime);
+    if (!countdown) return;
+    if (selectedAuctionManuallyClosed) {
+        countdown.textContent = 'Auction Ended';
+    } else if (selectedEndTime) {
+        countdown.textContent = formatCountdown(selectedEndTime);
+    }
 }
 
 function stopAuctionPolling() {
@@ -1232,6 +1296,7 @@ function stopAuctionPolling() {
 
 function startAuctionPolling(auctionId) {
     stopAuctionPolling();
+    if (selectedAuctionManuallyClosed) return;
     const currentAuctionId = String(auctionId);
     pollingAuctionId = currentAuctionId;
     setLiveUpdateStatus('Live updates: ON', 'live');
@@ -1260,7 +1325,8 @@ async function pollSelectedAuction(auctionId) {
         }
         renderDetails(data.auction);
         noteAuctionUpdated();
-        setLiveUpdateStatus('Live updates: ON', 'live');
+        if (selectedAuctionManuallyClosed) setLiveUpdateStatus('Live updates: OFF');
+        else setLiveUpdateStatus('Live updates: ON', 'live');
         setApiStatus(true);
     } catch (error) {
         if (auctionId === selectedAuctionId && auctionId === pollingAuctionId) {
@@ -1338,6 +1404,7 @@ async function submitBid(event) {
             setLiveUpdateStatus('Connection problem — retrying', 'problem');
         }
     } catch (error) {
+        if (error && typeof error.status === 'number') bidAmountInput.value = '';
         showBidMessage(friendlyApiError(error, 'bid'), true);
         if (error && typeof error.status !== 'number') setApiStatus(false);
         setLiveUpdateStatus('Live updates: ON', 'live');
@@ -1371,6 +1438,7 @@ async function loadAuctions() {
             setApiStatus(true);
             return true;
         } catch (error) {
+            lastAuctionListRenderKey = null;
             auctionList.replaceChildren();
             auctionCount.textContent = '';
             showMessage(error.message === 'The auction server returned an unreadable response.'
